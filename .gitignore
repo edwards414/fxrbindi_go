@@ -11,3 +11,6 @@ baselines/*.ckpt
 .ipynb_checkpoints/
 __pycache__/
 *.pyc
+
+# downloaded external engines (KataGo binary + nets)
+engines/
