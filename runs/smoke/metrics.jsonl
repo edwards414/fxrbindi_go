@@ -1,0 +1,2 @@
+{"iter": 1, "time": 34.35, "loss": 5.1632, "policy_loss": 4.418, "value_loss": 0.7452, "mask_frac": 0.6636, "finished_frac": 1.0, "avg_game_len": 107.5, "frames": 10368}
+{"iter": 2, "time": 1.72, "loss": 4.8477, "policy_loss": 4.2344, "value_loss": 0.6133, "mask_frac": 0.4076, "finished_frac": 1.0, "avg_game_len": 66.0, "frames": 10368, "anchor_iter": 0, "win_vs_anchor": 0.0, "lose_vs_anchor": 0.375}

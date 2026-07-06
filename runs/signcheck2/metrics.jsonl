@@ -1,0 +1,1 @@
+{"iter": 1, "time": 47.35, "loss": 5.2218, "policy_loss": 4.344, "value_loss": 0.8778, "mask_frac": 0.7196, "finished_frac": 1.0, "avg_game_len": 116.6, "pass_frac": 0.0336, "frames": 41472}

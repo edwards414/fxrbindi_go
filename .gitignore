@@ -1,0 +1,13 @@
+# secrets — NEVER commit
+.secrets/
+*.env
+
+# large training artifacts (checkpoints ~31MB each, >2GB total)
+runs/**/*.pkl
+baselines/*.ckpt
+
+# caches / notebooks
+.jax_cache/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc

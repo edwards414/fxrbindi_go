@@ -1,0 +1,3 @@
+{"iter": 1, "time": 53.87, "loss": 5.2257, "policy_loss": 4.4178, "value_loss": 0.808, "mask_frac": 0.6708, "finished_frac": 1.0, "avg_game_len": 108.7, "frames": 31104}
+{"iter": 2, "time": 1.71, "loss": 4.9852, "policy_loss": 4.2846, "value_loss": 0.7006, "mask_frac": 0.445, "finished_frac": 1.0, "avg_game_len": 72.1, "frames": 31104}
+{"iter": 3, "time": 1.56, "loss": 4.5811, "policy_loss": 4.0532, "value_loss": 0.5279, "mask_frac": 0.3327, "finished_frac": 1.0, "avg_game_len": 53.9, "frames": 31104, "anchor_iter": 0, "win_vs_anchor": 0.0, "lose_vs_anchor": 1.0}

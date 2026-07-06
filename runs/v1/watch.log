@@ -1,0 +1,25 @@
+iter=58 eval random: 100.0%
+iter=137 eval pgx_baseline: 2.3%
+iter=217 eval pgx_baseline: 0.8%
+iter=296 eval pgx_baseline: 7.8%
+iter=377 eval pgx_baseline: 10.9%
+iter=457 eval pgx_baseline: 27.3%
+iter=536 eval pgx_baseline: 49.2%
+iter=616 eval pgx_baseline: 64.1%
+eval failed: Command '['python', '-m', 'gozero.evaluate', '--ckpt', '/home/go_ai/runs/v1/latest.pkl', '--sims', '128', '--games', '12', '--vs-gtp', 'gnugo --mode gtp --boardsize 9 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead']' timed out after 3600 seconds
+iter=697 eval gnugo_lv10: None%
+eval failed: Command '['python', '-m', 'gozero.evaluate', '--ckpt', '/home/go_ai/runs/v1/latest.pkl', '--sims', '128', '--games', '12', '--vs-gtp', 'gnugo --mode gtp --boardsize 9 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead']' timed out after 3600 seconds
+iter=782 eval gnugo_lv10: None%
+eval failed: Command '['python', '-m', 'gozero.evaluate', '--ckpt', '/home/go_ai/runs/v1/latest.pkl', '--sims', '128', '--games', '12', '--vs-gtp', 'gnugo --mode gtp --boardsize 9 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead']' timed out after 3600 seconds
+iter=869 eval gnugo_lv10: None%
+eval failed: Command '['python', '-m', 'gozero.evaluate', '--ckpt', '/home/go_ai/runs/v1/latest.pkl', '--sims', '128', '--games', '8', '--vs-gtp', 'gnugo --mode gtp --boardsize 9 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead']' timed out after 7200 seconds
+iter=942 eval gnugo_lv10: None%
+eval failed: Command '['taskset', '-c', '0-3', 'python', '-m', 'gozero.evaluate', '--ckpt', '/home/go_ai/runs/v1/latest.pkl', '--sims', '128', '--games', '6', '--vs-gtp', 'gnugo --mode gtp --boardsize 9 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead']' timed out after 7200 seconds
+iter=953 eval gnugo_lv10: None%
+eval failed: Command '['taskset', '-c', '0-3', 'python', '-m', 'gozero.evaluate', '--ckpt', '/home/go_ai/runs/v1/latest.pkl', '--sims', '128', '--games', '6', '--vs-gtp', 'gnugo --mode gtp --boardsize 9 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead']' timed out after 7200 seconds
+iter=1043 eval gnugo_lv10: None%
+iter=1076 eval gnugo_lv10: None%
+iter=1139 eval gnugo_lv10: None%
+iter=1205 eval gnugo_lv10: None%
+iter=1270 eval gnugo_lv10: None%
+iter=1358 eval gnugo_lv10: None%

@@ -1,0 +1,22 @@
+{
+  "env_id": "go_9x9",
+  "run_dir": "runs/signcheck3",
+  "resume": null,
+  "channels": 128,
+  "blocks": 8,
+  "selfplay_batch": 256,
+  "sims": 32,
+  "max_considered": 16,
+  "max_steps": 162,
+  "pass_guard_ply": 40,
+  "train_batch": 1024,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "warmup_iters": 20,
+  "decay_iters": 2000,
+  "iters": 40,
+  "eval_every": 10,
+  "eval_batch": 128,
+  "save_every": 40,
+  "seed": 42
+}
