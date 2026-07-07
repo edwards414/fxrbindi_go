@@ -1,6 +1,7 @@
 # secrets — NEVER commit
 .secrets/
 *.env
+untitled.txt
 
 # large training artifacts (checkpoints ~31MB each, >2GB total)
 runs/**/*.pkl
