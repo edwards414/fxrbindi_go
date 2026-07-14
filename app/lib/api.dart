@@ -2,10 +2,11 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-/// 引擎伺服器 (gozero/server.py)，跑在 Ubuntu server 上，經 Cloudflare tunnel 對外。
-/// ⚠️ 目前是 quick tunnel 的「暫時網址」，cloudflared 重啟會變；換永久具名 tunnel 後改成固定網域。
+/// 引擎伺服器 (gozero/server.py)，跑在使用者家中 server，路由器把 8765 轉發到公網固定 IP。
+/// ⚠️ 明文 HTTP（沒有網域就沒有正規 TLS 憑證）。裸 IP 沒法用 NSExceptionDomains 精準例外
+/// （Apple 不保證對 IP 字串生效），Info.plist 用 NSAllowsArbitraryLoads 整個 app 放行明文。
 /// 本機開發要直連時改回 'http://127.0.0.1:8765'。
-const engineBase = 'https://boston-leon-bangkok-extensive.trycloudflare.com';
+const engineBase = 'http://59.125.215.63:8765';
 
 class GameState {
   final String gameId;

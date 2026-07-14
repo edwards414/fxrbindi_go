@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Gozero Go</string>
+	<string>玄石</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -29,6 +29,11 @@
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<!-- 引擎伺服器是裸 IP（沒網域，沒正規 TLS 憑證），NSExceptionDomains 對 IP
+		     位址不可靠，只能整體放行明文連線。TestFlight 測試沒問題；若之後要送
+		     正式上架，Apple 可能要求在審查備註說明用途，屆時應優先換回有 TLS 的網域。 -->
+		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
 	<key>UIApplicationSceneManifest</key>
