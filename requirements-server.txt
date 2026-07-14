@@ -1,0 +1,9 @@
+# CPU-only runtime deps for the HTTP inference server.
+# Training uses requirements.txt, which installs CUDA-enabled JAX.
+jax==0.6.2
+jaxlib==0.6.2
+flax==0.10.7
+optax==0.2.8
+mctx==0.0.5
+pgx==2.6.0
+numpy==2.2.6

@@ -51,6 +51,48 @@ python -m gozero.evaluate --ckpt runs/v1/latest.pkl --sims 256 --games 20 \
 python -m gozero.evaluate --ckpt new.pkl --vs-ckpt old.pkl --sims 32 --opp-sims 32
 ```
 
+## iPhone App（Flutter，`app/`）
+
+「玄石」— 9 路對弈 app（墨×原木×宣紙風格），內建模型性能頁。引擎跑在 Mac 上，
+模擬器透過 localhost 連線:
+
+```bash
+# 1. 啟動引擎伺服器（首次啟動會 JIT 編譯三檔強度，約 40 秒）
+JAX_PLATFORMS=cpu .venv/bin/python -m gozero.server --ckpt runs/v4/latest.pkl --port 8765
+
+# 2. 跑 app（iPhone 17 模擬器）
+cd app && flutter run -d "iPhone 17"
+```
+
+強度三檔對應 MCTS 模擬數 0 / 32 / 128。性能頁資料由
+`scripts/gen_app_stats.py` 從 `runs/v1/metrics.jsonl` 與評測結果生成。
+
+## Docker 啟動引擎伺服器
+
+Docker 映像只包 HTTP inference server，不把 Flutter app 或 checkpoint 放進映像；
+checkpoint 從本機掛載，對戰狀態寫到 Docker volume。
+
+```bash
+# 建 image
+docker build -t gozero-server .
+
+# 啟動 server
+docker run --rm \
+  -p 8765:8765 \
+  -v "$PWD/runs/v4/latest.pkl:/models/latest.pkl:ro" \
+  -v gozero-server-data:/data \
+  gozero-server
+
+# 或用 compose
+docker compose up --build
+```
+
+健康檢查:
+
+```bash
+curl http://127.0.0.1:8765/health
+```
+
 ## 通知與運維
 
 - 里程碑監控:`nohup python scripts/milestone_watch.py --run-dir runs/v1 >> runs/v1/watch.log 2>&1 &`

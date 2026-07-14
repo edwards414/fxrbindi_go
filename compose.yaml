@@ -1,0 +1,15 @@
+services:
+  gozero-server:
+    build: .
+    image: gozero-server:latest
+    ports:
+      - "8765:8765"
+    environment:
+      JAX_PLATFORMS: cpu
+      XLA_PYTHON_CLIENT_PREALLOCATE: "false"
+    volumes:
+      - ./runs/v4/latest.pkl:/models/latest.pkl:ro
+      - gozero-server-data:/data
+
+volumes:
+  gozero-server-data:

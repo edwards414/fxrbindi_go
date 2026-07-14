@@ -1,0 +1,14 @@
+.git/
+.venv/
+.jax_cache/
+__pycache__/
+*.pyc
+.secrets/
+*.env
+engines/
+app/
+baselines/
+runs/
+output/
+*.log
+.DS_Store

@@ -7,6 +7,12 @@ untitled.txt
 runs/**/*.pkl
 baselines/*.ckpt
 
+# local CPU inference env (app engine server)
+.venv/
+
+# runtime state written by the engine server (persisted games)
+runs/**/app_games.json
+
 # caches / notebooks
 .jax_cache/
 .ipynb_checkpoints/
