@@ -5,8 +5,9 @@ Usage:
     python -m gozero.server --ckpt /models/latest.pkl --host 0.0.0.0 --port 8765
 
 The iOS-simulator app talks to http://127.0.0.1:8765 (the simulator shares
-the host network).  Single-threaded on purpose: JAX search calls are
-sequential anyway, and one client (the app) is the only consumer.
+the host network).  Threaded: one thread per connection so a slow/stalled
+client can't wedge everyone else, but all engine access is serialized with
+a lock since JAX search/state mutation isn't safe to run concurrently.
 
 Endpoints (JSON in/out):
     GET  /health                          -> model info
@@ -22,9 +23,10 @@ import atexit
 import json
 import os
 import signal
+import threading
 import time
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import jax
 import jax.numpy as jnp
@@ -67,6 +69,8 @@ class Engine:
         self.init = jax.jit(self.env.init)
         self.step = jax.jit(self.env.step)
         self.games: dict[str, Game] = {}
+        # serializes all engine access across handler threads (JAX calls + games dict)
+        self.lock = threading.Lock()
         # trigger compilation up-front so the first app move isn't slow
         g = Game(self, "easy", "black")
         self.step(g.state, jnp.int32(0))
@@ -190,11 +194,12 @@ class Engine:
 
     # -- persistence: survive server restarts ---------------------------------
     def save_games(self, path: str):
-        data = {
-            gid: {"level": g.level, "human_color": g.human_color,
-                  "history": g.history, "resigned_by": g.resigned_by}
-            for gid, g in self.games.items()
-        }
+        with self.lock:
+            data = {
+                gid: {"level": g.level, "human_color": g.human_color,
+                      "history": g.history, "resigned_by": g.resigned_by}
+                for gid, g in self.games.items()
+            }
         with open(path, "w") as f:
             json.dump(data, f)
 
@@ -218,7 +223,7 @@ class Engine:
 
 class Handler(BaseHTTPRequestHandler):
     engine: Engine  # set at startup
-    timeout = 30  # a silent connection must not wedge the single-threaded server
+    timeout = 30  # cap how long one thread waits on a silent connection
 
     def log_message(self, fmt, *args):  # quiet
         pass
@@ -237,10 +242,11 @@ class Handler(BaseHTTPRequestHandler):
             # read-only resync endpoint: /state?game_id=xxx
             from urllib.parse import parse_qs, urlparse
             gid = parse_qs(urlparse(self.path).query).get("game_id", [""])[0]
-            game = e.games.get(gid)
-            if game is None:
-                return self._send({"error": "unknown game"}, 404)
-            return self._send(e.snapshot(game, gid))
+            with e.lock:
+                game = e.games.get(gid)
+                if game is None:
+                    return self._send({"error": "unknown game"}, 404)
+                return self._send(e.snapshot(game, gid))
         if self.path != "/health":
             return self._send({"error": "not found"}, 404)
         cfg = e.config
@@ -256,60 +262,65 @@ class Handler(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(n) or b"{}")
         e = self.engine
         try:
-            if self.path == "/new":
-                level = req.get("level", "normal")
-                human = req.get("human_color", "black")
-                if level not in LEVELS or human not in ("black", "white"):
-                    return self._send({"error": "bad level/color"}, 400)
-                game_id = uuid.uuid4().hex[:12]
-                game = Game(e, level, human)
-                e.games[game_id] = game
-                while len(e.games) > Engine.MAX_GAMES:
-                    e.games.pop(next(iter(e.games)))
-                ai = e.ai_move(game) if human == "white" else None
-                return self._send(e.snapshot(game, game_id, ai_move=ai))
+            with e.lock:
+                if self.path == "/new":
+                    level = req.get("level", "normal")
+                    human = req.get("human_color", "black")
+                    if level not in LEVELS or human not in ("black", "white"):
+                        return self._send({"error": "bad level/color"}, 400)
+                    game_id = uuid.uuid4().hex[:12]
+                    game = Game(e, level, human)
+                    e.games[game_id] = game
+                    while len(e.games) > Engine.MAX_GAMES:
+                        e.games.pop(next(iter(e.games)))
+                    ai = e.ai_move(game) if human == "white" else None
+                    return self._send(e.snapshot(game, game_id, ai_move=ai))
 
-            game = e.games.get(req.get("game_id", ""))
-            if game is None:
-                return self._send({"error": "unknown game"}, 404)
-            gid = req["game_id"]
+                game = e.games.get(req.get("game_id", ""))
+                if game is None:
+                    return self._send({"error": "unknown game"}, 404)
+                gid = req["game_id"]
 
-            if self.path == "/move":
-                if game.resigned_by or bool(game.state.terminated | game.state.truncated):
-                    return self._send({"error": "game over"}, 400)
-                action = int(req["action"])
-                # JAX 索引會 clamp/wrap，越界值必須擋在這裡
-                if not 0 <= action <= e.size * e.size:
-                    return self._send({"error": "action out of range"}, 400)
-                e.play(game, action)
-                ai = None
-                if not bool(game.state.terminated | game.state.truncated):
-                    ai = e.ai_move(game)
-                return self._send(e.snapshot(game, gid, ai_move=ai))
+                if self.path == "/move":
+                    if game.resigned_by or bool(game.state.terminated | game.state.truncated):
+                        return self._send({"error": "game over"}, 400)
+                    action = int(req["action"])
+                    # JAX 索引會 clamp/wrap，越界值必須擋在這裡
+                    if not 0 <= action <= e.size * e.size:
+                        return self._send({"error": "action out of range"}, 400)
+                    e.play(game, action)
+                    ai = None
+                    if not bool(game.state.terminated | game.state.truncated):
+                        ai = e.ai_move(game)
+                    return self._send(e.snapshot(game, gid, ai_move=ai))
 
-            if self.path == "/undo":
-                # drop plies until it's the human's turn again (min one round)
-                human_is_black = game.human_color == "black"
-                h = game.history[:]
-                if not h:
-                    return self._send({"error": "nothing to undo"}, 400)
-                h.pop()
-                while h and (len(h) % 2 == 0) != human_is_black:
+                if self.path == "/undo":
+                    # drop plies until it's the human's turn again (min one round)
+                    human_is_black = game.human_color == "black"
+                    h = game.history[:]
+                    if not h:
+                        return self._send({"error": "nothing to undo"}, 400)
                     h.pop()
-                game.resigned_by = None
-                e.replay(game, h)
-                # 執白退到空盤時輪到 AI（黑）先行：補回開局手，否則棋局卡死
-                if (len(game.history) % 2 == 0) != human_is_black:
-                    e.ai_move(game)
-                return self._send(e.snapshot(game, gid))
+                    while h and (len(h) % 2 == 0) != human_is_black:
+                        h.pop()
+                    game.resigned_by = None
+                    e.replay(game, h)
+                    # 執白退到空盤時輪到 AI（黑）先行：補回開局手，否則棋局卡死
+                    if (len(game.history) % 2 == 0) != human_is_black:
+                        e.ai_move(game)
+                    return self._send(e.snapshot(game, gid))
 
-            if self.path == "/resign":
-                game.resigned_by = game.human_color
-                return self._send(e.snapshot(game, gid))
+                if self.path == "/resign":
+                    game.resigned_by = game.human_color
+                    return self._send(e.snapshot(game, gid))
 
-            return self._send({"error": "not found"}, 404)
+                return self._send({"error": "not found"}, 404)
         except ValueError as err:
             return self._send({"error": str(err)}, 400)
+
+
+class Server(ThreadingHTTPServer):
+    daemon_threads = True  # don't block process exit on stuck connections
 
 
 def main():
@@ -335,7 +346,7 @@ def main():
     signal.signal(signal.SIGINT, save_and_exit)
     print(f"engine ready (iteration {Handler.engine.iteration}), "
           f"serving on http://{args.host}:{args.port}", flush=True)
-    HTTPServer((args.host, args.port), Handler).serve_forever()
+    Server((args.host, args.port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
