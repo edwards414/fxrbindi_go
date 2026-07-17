@@ -1,8 +1,8 @@
 # 桌面版（macOS / Windows）建置與發佈
 #
 # 觸發方式：
-#   - 推 v* tag（如 v1.0.0）→ 建置並開 GitHub Release 附上兩個 zip
-#   - Actions 頁面手動 Run workflow → 只建置、把 zip 存成 artifacts（不發佈）
+#   - 推 v* tag（如 v1.0.0）→ 建置並開 GitHub Release，附 .dmg 與安裝版 .exe
+#   - Actions 頁面手動 Run workflow → 只建置、存成 artifacts（不發佈）
 #
 # 產物未簽章：macOS 第一次開啟要在 app 上按右鍵 →「打開」略過 Gatekeeper；
 # Windows SmartScreen 按「其他資訊 → 仍要執行」。
@@ -34,16 +34,18 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter build macos --release
-      - name: Zip .app bundle
-        # ditto 保留 resource fork / 執行權限，Finder 解壓後可直接執行
-        run: >
-          ditto -c -k --keepParent
-          build/macos/Build/Products/Release/gozero_go.app
-          gozero_go-macos.zip
+      - name: Package .dmg
+        # 標準拖曳安裝盤：.app + Applications 捷徑
+        run: |
+          mkdir dmg-root
+          cp -R build/macos/Build/Products/Release/gozero_go.app dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname "XuanShi GoZero" -srcfolder dmg-root \
+            -ov -format UDZO gozero_go-macos.dmg
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-zip
-          path: app/gozero_go-macos.zip
+          name: macos-dmg
+          path: app/gozero_go-macos.dmg
           if-no-files-found: error
 
   windows:
@@ -60,16 +62,16 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter build windows --release
-      - name: Zip runner folder
-        # Release/ 內含 exe + flutter dll + data/，整包缺一不可
-        run: >
-          Compress-Archive
-          -Path build/windows/x64/runner/Release/*
-          -DestinationPath gozero_go-windows.zip
+      - name: Build installer (Inno Setup)
+        working-directory: app/windows
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart("v")
+          if ("$env:GITHUB_REF" -notlike "refs/tags/*") { $version = "0.0.0" }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=$version installer.iss
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-zip
-          path: app/gozero_go-windows.zip
+          name: windows-installer
+          path: app/windows/gozero_go-setup.exe
           if-no-files-found: error
 
   release:
@@ -84,12 +86,12 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            gozero_go-macos.zip
-            gozero_go-windows.zip
+            gozero_go-macos.dmg
+            gozero_go-setup.exe
           body: |
             玄石 GoZero 桌面版。
 
-            - **macOS**：解壓 `gozero_go-macos.zip`，第一次開啟請在 app 上按右鍵 →「打開」（未簽章）。
-            - **Windows**：解壓 `gozero_go-windows.zip` 後執行 `gozero_go.exe`；SmartScreen 出現時按「其他資訊 → 仍要執行」。
+            - **macOS**：開啟 `gozero_go-macos.dmg`，把 app 拖進 Applications；第一次開啟請在 app 上按右鍵 →「打開」（未簽章）。
+            - **Windows**：執行 `gozero_go-setup.exe` 安裝；SmartScreen 出現時按「其他資訊 → 仍要執行」。
 
             需要連得到引擎伺服器才能對弈。
