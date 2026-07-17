@@ -21,3 +21,4 @@ __pycache__/
 
 # downloaded external engines (KataGo binary + nets)
 engines/
+*.p8
