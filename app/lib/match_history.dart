@@ -17,6 +17,7 @@ class MatchRecord {
   final String? reason;
   final double? margin;
   final double komi;
+  final int handicap;
 
   const MatchRecord({
     required this.id,
@@ -30,6 +31,7 @@ class MatchRecord {
     required this.reason,
     required this.margin,
     required this.komi,
+    this.handicap = 0,
   });
 
   factory MatchRecord.fromGame(GameState game, {required String level}) =>
@@ -45,6 +47,7 @@ class MatchRecord {
         reason: game.winReason,
         margin: game.margin,
         komi: game.komi,
+        handicap: game.handicap,
       );
 
   factory MatchRecord.fromJson(Map<String, dynamic> json) => MatchRecord(
@@ -65,6 +68,7 @@ class MatchRecord {
     reason: json['reason'] as String?,
     margin: (json['margin'] as num?)?.toDouble(),
     komi: (json['komi'] as num).toDouble(),
+    handicap: (json['handicap'] as num?)?.toInt() ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -79,6 +83,7 @@ class MatchRecord {
     'reason': reason,
     'margin': margin,
     'komi': komi,
+    'handicap': handicap,
   };
 }
 

@@ -11,11 +11,15 @@ import 'winrate_curve.dart';
 class GamePage extends StatefulWidget {
   final String level;
   final String humanColor;
+  final double komi;
+  final int handicap;
   final bool autoDemo; // 展示模式：自動下幾手（僅 autodemo 鉤子使用）
   const GamePage({
     super.key,
     required this.level,
     required this.humanColor,
+    this.komi = 7.5,
+    this.handicap = 0,
     this.autoDemo = false,
   });
 
@@ -141,7 +145,12 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
   }
 
   void _newGame() => _run(
-    () => api.newGame(level: widget.level, humanColor: widget.humanColor),
+    () => api.newGame(
+      level: widget.level,
+      humanColor: widget.humanColor,
+      komi: widget.komi,
+      handicap: widget.handicap,
+    ),
   );
 
   /// 錯誤（如 timeout 後伺服器已落子）後向伺服器拉回真實狀態
@@ -256,7 +265,8 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
       appBar: AppBar(
         backgroundColor: Sumi.bg,
         title: Text(
-          '對弈 · ${levelNames[widget.level]}',
+          '對弈 · ${levelNames[widget.level]}'
+          '${widget.handicap > 0 ? ' · 讓${widget.handicap}子' : ''}',
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
         ),
         actions: [

@@ -125,7 +125,9 @@ class _HistoryPageState extends State<HistoryPage> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '你執$humanColor · $level · ${record.actions.length} 手',
+                      '你執$humanColor · $level'
+                      '${record.handicap > 0 ? ' · 讓${record.handicap}子' : ''}'
+                      ' · ${record.actions.length} 手',
                       style: const TextStyle(
                         fontSize: 13,
                         color: Sumi.paperDim,

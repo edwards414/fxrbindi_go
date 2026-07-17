@@ -11,7 +11,7 @@ a lock since JAX search/state mutation isn't safe to run concurrently.
 
 Endpoints (JSON in/out):
     GET  /health                          -> model info
-    POST /new    {level, human_color}     -> fresh game, AI opens if it's black
+    POST /new    {level, human_color, komi?, handicap?} -> fresh game, AI opens if to move
     POST /move   {game_id, action}        -> human move + AI reply (action 81 = pass)
     POST /undo   {game_id}                -> revert one full round (human+AI plies)
     POST /resign {game_id}                -> human resigns
@@ -32,20 +32,30 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from pgx.go import Go
+
 from gozero.mcts import batch_of_one, load_ckpt, make_search_fn
 
 LEVELS = {"easy": 0, "normal": 32, "strong": 128}  # MCTS simulations
-KOMI = 7.5  # fixed by the pgx training environment
+DEFAULT_KOMI = 7.5  # the pgx training komi; other values are legal but the
+                    # value head stays 7.5-calibrated (search still scores
+                    # terminal nodes with the game's own komi)
+HANDICAPS = (0, 2, 3, 4)
 
 
 class Game:
-    def __init__(self, engine, level: str, human_color: str):
+    def __init__(self, engine, level: str, human_color: str,
+                 komi: float = DEFAULT_KOMI, handicap: int = 0):
         self.level = level
         self.human_color = human_color  # "black" | "white"
+        self.komi = komi
+        self.handicap = handicap
+        # 讓子前綴（黑落星位/白虛手交替）佔掉的手數，undo 不可退進這段
+        self.setup_plies = max(0, 2 * handicap - 1)
         self.history: list[int] = []  # actions from the initial position
         key = jax.random.PRNGKey(int(time.time() * 1000) % (2**31))
         self.key, self.init_key = jax.random.split(key)
-        self.state = engine.init(self.init_key)
+        self.state = engine.env_fns(komi)[0](self.init_key)
         self.black_player = int(self.state.current_player)  # black moves first
         self.resigned_by: str | None = None
         # 黑勝率軌跡：winrates[i] = 第 i 手後（i=0 為空盤）的模型評估
@@ -60,23 +70,46 @@ class Engine:
         self.size = int(self.env.observation_shape[0])
         self.iteration = ck.get("iteration")
         self.config = ck["config"]
-        self.searches = {
-            name: make_search_fn(self.env, self.net, num_simulations=sims)
-            for name, sims in LEVELS.items()
-        }
         self.forward = jax.jit(lambda obs: self.net.apply({"params": self.params}, obs))
-        # eager env.step costs ~200ms/move on CPU; jitted it's ~1ms
-        self.init = jax.jit(self.env.init)
-        self.step = jax.jit(self.env.step)
+        # 貼目烙在 env 的 JIT 常數裡：每個 komi 要自己的 env/init/step 與 search fn，
+        # 非預設貼目第一手會多等一次編譯，之後走快取
+        self._envs: dict[float, object] = {DEFAULT_KOMI: self.env}
+        self._env_fns: dict[float, tuple] = {}
+        self._searches: dict[tuple[float, str], object] = {}
+        # 讓子星位：右上、左下、右下、左上（9 路 hoshi 在三線）
+        h = 2 if self.size < 13 else 3
+        t = self.size - 1 - h
+        self.handicap_actions = [r * self.size + c
+                                 for r, c in ((h, t), (t, h), (t, t), (h, h))]
         self.games: dict[str, Game] = {}
         # serializes all engine access across handler threads (JAX calls + games dict)
         self.lock = threading.Lock()
         # trigger compilation up-front so the first app move isn't slow
         g = Game(self, "easy", "black")
-        self.step(g.state, jnp.int32(0))
+        self.env_fns(DEFAULT_KOMI)[1](g.state, jnp.int32(0))
         for name in LEVELS:
-            self.searches[name](self.params, jax.random.PRNGKey(0), batch_of_one(g.state))
+            self.search_fn(DEFAULT_KOMI, name)(
+                self.params, jax.random.PRNGKey(0), batch_of_one(g.state))
         self.forward(batch_of_one(g.state).observation)
+
+    def _env(self, komi: float):
+        if komi not in self._envs:
+            self._envs[komi] = Go(size=self.size, komi=komi)
+        return self._envs[komi]
+
+    def env_fns(self, komi: float) -> tuple:
+        """(jitted init, jitted step) for the given komi.
+        eager env.step costs ~200ms/move on CPU; jitted it's ~1ms"""
+        if komi not in self._env_fns:
+            env = self._env(komi)
+            self._env_fns[komi] = (jax.jit(env.init), jax.jit(env.step))
+        return self._env_fns[komi]
+
+    def search_fn(self, komi: float, level: str):
+        if (komi, level) not in self._searches:
+            self._searches[(komi, level)] = make_search_fn(
+                self._env(komi), self.net, num_simulations=LEVELS[level])
+        return self._searches[(komi, level)]
 
     # -- board / evaluation helpers -----------------------------------------
     def board(self, game: Game) -> list[int]:
@@ -93,7 +126,7 @@ class Engine:
         p = (v + 1.0) / 2.0
         return p if ply % 2 == 0 else 1.0 - p
 
-    def tromp_taylor(self, board: list[int]) -> float:
+    def tromp_taylor(self, board: list[int], komi: float) -> float:
         """Black score margin (positive = black leads), area scoring + komi."""
         n = self.size
         b = np.array(board).reshape(n, n)
@@ -120,7 +153,7 @@ class Engine:
                     counts[1] += len(region)
                 elif borders == {2}:
                     counts[2] += len(region)
-        return counts[1] - counts[2] - KOMI
+        return counts[1] - counts[2] - komi
 
     def snapshot(self, game: Game, game_id: str, ai_move: int | None = None) -> dict:
         board = self.board(game)
@@ -130,7 +163,7 @@ class Engine:
             winner = "white" if game.resigned_by == "black" else "black"
             result = {"winner": winner, "reason": "resign", "margin": None}
         elif over:
-            margin = self.tromp_taylor(board)
+            margin = self.tromp_taylor(board, game.komi)
             r_black = float(game.state.rewards[game.black_player])
             if r_black != 0 and (r_black > 0) != (margin > 0):
                 # pgx 的判定（如全同型犯規=立即判負）優先於盤面點目
@@ -158,7 +191,9 @@ class Engine:
             "captures": self.capture_counts(game, board),
             "game_over": bool(over),
             "result": result,
-            "komi": KOMI,
+            "komi": game.komi,
+            "handicap": game.handicap,
+            "setup_plies": game.setup_plies,
         }
 
     def capture_counts(self, game: Game, board: list[int]) -> dict:
@@ -174,19 +209,29 @@ class Engine:
     def play(self, game: Game, action: int):
         if not bool(game.state.legal_action_mask[action]):
             raise ValueError("illegal move")
-        game.state = self.step(game.state, jnp.int32(action))
+        game.state = self.env_fns(game.komi)[1](game.state, jnp.int32(action))
         game.history.append(int(action))
         game.winrates.append(self.state_black_winrate(game.state, len(game.history)))
 
+    def apply_handicap(self, game: Game):
+        """讓子前綴：黑落星位、白虛手交替。虛手不連續，不會觸發雙虛手終局，
+        結束時輪到白方行棋（讓子棋慣例）。"""
+        pass_action = self.size * self.size
+        for i, a in enumerate(self.handicap_actions[:game.handicap]):
+            if i:
+                self.play(game, pass_action)
+            self.play(game, a)
+
     def ai_move(self, game: Game) -> int:
         game.key, k = jax.random.split(game.key)
-        actions, _ = self.searches[game.level](self.params, k, batch_of_one(game.state))
+        search = self.search_fn(game.komi, game.level)
+        actions, _ = search(self.params, k, batch_of_one(game.state))
         action = int(actions[0])
         self.play(game, action)
         return action
 
     def replay(self, game: Game, history: list[int]):
-        game.state = self.init(game.init_key)
+        game.state = self.env_fns(game.komi)[0](game.init_key)
         game.history = []
         game.winrates = [self.state_black_winrate(game.state, 0)]
         for a in history:
@@ -197,7 +242,8 @@ class Engine:
         with self.lock:
             data = {
                 gid: {"level": g.level, "human_color": g.human_color,
-                      "history": g.history, "resigned_by": g.resigned_by}
+                      "history": g.history, "resigned_by": g.resigned_by,
+                      "komi": g.komi, "handicap": g.handicap}
                 for gid, g in self.games.items()
             }
         with open(path, "w") as f:
@@ -210,9 +256,10 @@ class Engine:
         except (OSError, json.JSONDecodeError):
             return
         for gid, d in data.items():
-            game = Game(self, d["level"], d["human_color"])
+            game = Game(self, d["level"], d["human_color"],
+                        d.get("komi", DEFAULT_KOMI), d.get("handicap", 0))
             try:
-                self.replay(game, d["history"])
+                self.replay(game, d["history"])  # 存檔已含讓子前綴
             except ValueError:
                 continue  # stale/corrupt entry; drop it
             game.resigned_by = d["resigned_by"]
@@ -266,14 +313,23 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path == "/new":
                     level = req.get("level", "normal")
                     human = req.get("human_color", "black")
+                    komi = float(req.get("komi", DEFAULT_KOMI))
+                    handicap = int(req.get("handicap", 0))
                     if level not in LEVELS or human not in ("black", "white"):
                         return self._send({"error": "bad level/color"}, 400)
+                    # 半整數避免 JIT 快取被連續值撐爆；範圍蓋住 9 路全盤
+                    if not (komi * 2).is_integer() or not -81 <= komi <= 81:
+                        return self._send({"error": "bad komi"}, 400)
+                    if handicap not in HANDICAPS:
+                        return self._send({"error": "bad handicap"}, 400)
                     game_id = uuid.uuid4().hex[:12]
-                    game = Game(e, level, human)
+                    game = Game(e, level, human, komi, handicap)
                     e.games[game_id] = game
                     while len(e.games) > Engine.MAX_GAMES:
                         e.games.pop(next(iter(e.games)))
-                    ai = e.ai_move(game) if human == "white" else None
+                    e.apply_handicap(game)
+                    to_move = "black" if len(game.history) % 2 == 0 else "white"
+                    ai = e.ai_move(game) if to_move != human else None
                     return self._send(e.snapshot(game, game_id, ai_move=ai))
 
                 game = e.games.get(req.get("game_id", ""))
@@ -295,13 +351,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(e.snapshot(game, gid, ai_move=ai))
 
                 if self.path == "/undo":
-                    # drop plies until it's the human's turn again (min one round)
+                    # drop plies until it's the human's turn again (min one round);
+                    # never into the handicap setup prefix
                     human_is_black = game.human_color == "black"
+                    base = game.setup_plies
                     h = game.history[:]
-                    if not h:
+                    if len(h) <= base:
                         return self._send({"error": "nothing to undo"}, 400)
                     h.pop()
-                    while h and (len(h) % 2 == 0) != human_is_black:
+                    while len(h) > base and (len(h) % 2 == 0) != human_is_black:
                         h.pop()
                     game.resigned_by = None
                     e.replay(game, h)

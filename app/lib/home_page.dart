@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'api.dart';
 import 'game_page.dart';
+import 'game_setup_page.dart';
 import 'history_page.dart';
 import 'main.dart';
 import 'stats_page.dart';
@@ -20,8 +21,6 @@ class _HomePageState extends State<HomePage> {
   final api = EngineApi();
   EngineInfo? info;
   String? engineError;
-  String level = 'normal';
-  String humanColor = 'black';
 
   @override
   void initState() {
@@ -106,49 +105,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'GoZero · 自研 Gumbel-AlphaZero 九路圍棋',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Sumi.paperDim),
-                  ),
-                  const SizedBox(height: 40),
-                  _section('執子', [
-                    _choice(
-                      '執黑（先行）',
-                      'black',
-                      humanColor,
-                      (v) => setState(() => humanColor = v),
-                    ),
-                    _choice(
-                      '執白',
-                      'white',
-                      humanColor,
-                      (v) => setState(() => humanColor = v),
-                    ),
-                  ]),
-                  const SizedBox(height: 18),
-                  _section('棋力', [
-                    _choice(
-                      '直覺 · 純策略網路',
-                      'easy',
-                      level,
-                      (v) => setState(() => level = v),
-                    ),
-                    _choice(
-                      '均衡 · 32 次搜索',
-                      'normal',
-                      level,
-                      (v) => setState(() => level = v),
-                    ),
-                    _choice(
-                      '深思 · 128 次搜索',
-                      'strong',
-                      level,
-                      (v) => setState(() => level = v),
-                    ),
-                  ]),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 48),
                   FilledButton(
                     style: FilledButton.styleFrom(
                       backgroundColor: Sumi.seal,
@@ -162,10 +119,7 @@ class _HomePageState extends State<HomePage> {
                         : () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => GamePage(
-                                level: level,
-                                humanColor: humanColor,
-                              ),
+                              builder: (_) => const GameSetupPage(),
                             ),
                           ),
                     child: const Text(
@@ -248,69 +202,10 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _section(String title, List<Widget> children) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        title,
-        style: const TextStyle(
-          fontSize: 14,
-          color: Sumi.paperDim,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 4,
-        ),
-      ),
-      const SizedBox(height: 8),
-      ...children,
-    ],
-  );
-
   ButtonStyle _secondaryButtonStyle() => OutlinedButton.styleFrom(
     foregroundColor: Sumi.paper,
     side: const BorderSide(color: Sumi.paperDim),
     padding: const EdgeInsets.symmetric(vertical: 14),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   );
-
-  Widget _choice(
-    String label,
-    String value,
-    String group,
-    ValueChanged<String> onTap,
-  ) {
-    final selected = value == group;
-    return GestureDetector(
-      onTap: () => onTap(value),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: selected ? Sumi.panel : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: selected ? Sumi.seal : Sumi.panel,
-            width: selected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              selected ? Icons.circle : Icons.circle_outlined,
-              size: 14,
-              color: selected ? Sumi.seal : Sumi.paperDim,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 16,
-                color: selected ? Sumi.paper : Sumi.paperDim,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

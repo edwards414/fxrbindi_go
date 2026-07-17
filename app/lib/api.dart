@@ -28,6 +28,7 @@ class GameState {
   final String? winReason; // score | resign
   final double? margin;
   final double komi;
+  final int handicap;
 
   GameState.fromJson(Map<String, dynamic> j)
     : gameId = j['game_id'],
@@ -50,7 +51,8 @@ class GameState {
       winner = j['result']?['winner'],
       winReason = j['result']?['reason'],
       margin = (j['result']?['margin'] as num?)?.toDouble(),
-      komi = (j['komi'] as num).toDouble();
+      komi = (j['komi'] as num).toDouble(),
+      handicap = (j['handicap'] as num?)?.toInt() ?? 0;
 
   int get passAction => size * size;
 }
@@ -87,8 +89,15 @@ class EngineApi {
   Future<GameState> newGame({
     required String level,
     required String humanColor,
+    double komi = 7.5,
+    int handicap = 0,
   }) async => GameState.fromJson(
-    await _post('/new', {'level': level, 'human_color': humanColor}),
+    await _post('/new', {
+      'level': level,
+      'human_color': humanColor,
+      'komi': komi,
+      'handicap': handicap,
+    }),
   );
 
   /// 唯讀狀態（timeout 後重新同步用）
