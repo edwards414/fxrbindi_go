@@ -1,0 +1,19 @@
+# Cloudflare Tunnel：把引擎伺服器以 https://go.fxrbindi.com 對外，不開任何公網 port。
+#
+# 憑證（tunnel credentials JSON）不進版控，放在引擎主機的 ~/.cloudflared/，
+# compose 以唯讀掛載到 /etc/cloudflared/creds/。
+# service 指的是 compose 網路內的服務名，不是 localhost。
+tunnel: 43935cb1-7f4c-499b-befe-61ce92965644
+credentials-file: /etc/cloudflared/creds/43935cb1-7f4c-499b-befe-61ce92965644.json
+
+# 邊緣連線數：預設 4 條，單一引擎不需要那麼多
+ha-connections: 2
+no-autoupdate: true
+
+ingress:
+  - hostname: go.fxrbindi.com
+    service: http://gozero-server:8765
+    originRequest:
+      # strong 檔一手約 1.6s，留足餘裕給排隊（引擎的請求處理是全域序列化的）
+      connectTimeout: 10s
+  - service: http_status:404

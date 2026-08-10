@@ -1,5 +1,6 @@
 import 'dart:io' show File;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -21,6 +22,7 @@ class _HomePageState extends State<HomePage> {
   final api = EngineApi();
   EngineInfo? info;
   String? engineError;
+  bool connecting = false;
 
   @override
   void initState() {
@@ -28,6 +30,10 @@ class _HomePageState extends State<HomePage> {
     _ping();
     // 展示/驗證用鉤子：從 Mac 寫入本 app 容器 Documents/autodemo.txt
     // （內容 game / stats），啟動即自動導頁；讀後即刪。
+    //
+    // 只在 debug build 生效。正式版若留著，等於 app 內有一條未公開的隱藏行為，
+    // 會踩到 App Review Guideline 2.3.1（不得包含未在審查中揭露的功能）。
+    if (!kDebugMode) return;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final docs = await getApplicationDocumentsDirectory();
       final f = File('${docs.path}/autodemo.txt');
@@ -45,6 +51,16 @@ class _HomePageState extends State<HomePage> {
               autoDemo: true,
             ),
           ),
+        );
+      } else if (mode == 'setup') {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const GameSetupPage()),
+        );
+      } else if (mode == 'history') {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const HistoryPage()),
         );
       } else if (mode.startsWith('stats')) {
         // 'stats' 或 'stats-scroll:0.45'（捲到頁高的 45%）
@@ -64,10 +80,38 @@ class _HomePageState extends State<HomePage> {
     setState(() => engineError = null);
     try {
       final i = await api.health();
-      setState(() => info = i);
+      if (mounted) setState(() => info = i);
     } catch (_) {
-      setState(() => engineError = '連不上對弈引擎，請確認網路連線後重試');
+      if (mounted) {
+        setState(() => engineError = '連不上對弈引擎，請確認網路連線後重試');
+      }
     }
+  }
+
+  /// 「開始對弈」永遠可按。引擎還沒連上時當場重試一次，失敗才提示——
+  /// 不能因為 health 失敗就把整個 app 鎖死（對戰紀錄與模型性能都是本機資料，
+  /// 沒有引擎照樣能看），否則審查員一旦連不到伺服器就會判定 app 無法使用。
+  Future<void> _startGame() async {
+    if (info == null) {
+      setState(() => connecting = true);
+      await _ping();
+      if (!mounted) return;
+      setState(() => connecting = false);
+      if (info == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('連不上對弈引擎，請確認網路連線後再試一次'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+    }
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const GameSetupPage()),
+    );
   }
 
   @override
@@ -114,17 +158,10 @@ class _HomePageState extends State<HomePage> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    onPressed: info == null
-                        ? null
-                        : () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const GameSetupPage(),
-                            ),
-                          ),
-                    child: const Text(
-                      '開始對弈',
-                      style: TextStyle(
+                    onPressed: connecting ? null : _startGame,
+                    child: Text(
+                      connecting ? '連線中…' : '開始對弈',
+                      style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
                       ),

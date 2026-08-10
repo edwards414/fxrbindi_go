@@ -3,14 +3,33 @@ services:
     build: .
     image: gozero-server:latest
     restart: unless-stopped
+    # 只綁 loopback：對外一律走 cloudflared，公網不需要任何 port forwarding。
+    # 本機除錯時 curl 127.0.0.1:8765 仍然通。
     ports:
-      - "8765:8765"
+      - "127.0.0.1:8765:8765"
     environment:
       JAX_PLATFORMS: cpu
       XLA_PYTHON_CLIENT_PREALLOCATE: "false"
     volumes:
       - ./runs/v4/latest.pkl:/models/latest.pkl:ro
       - gozero-server-data:/data
+
+  # https://go.fxrbindi.com → gozero-server:8765
+  # 憑證放主機 ~/.cloudflared/（不進版控）；ingress 設定在 deploy/cloudflared/config.yml
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml run
+    # 映像預設跑 uid 65532，讀不到 ~/.cloudflared（700）底下 600 的憑證；
+    # 改用憑證擁有者的 uid，憑證就不必放寬成全域可讀。
+    # 注意：UID 在多數 shell 不會 export、GID 根本不存在，所以不能寫 ${UID}——
+    # 那只會永遠取到 fallback。改由 .env 的 CLOUDFLARED_UID 指定（引擎主機為 1000）。
+    user: "${CLOUDFLARED_UID:-1000}:${CLOUDFLARED_GID:-1000}"
+    volumes:
+      - ./deploy/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ${HOME}/.cloudflared:/etc/cloudflared/creds:ro
+    depends_on:
+      - gozero-server
 
 volumes:
   gozero-server-data:

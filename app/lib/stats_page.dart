@@ -60,7 +60,8 @@ class _StatsPageState extends State<StatsPage> {
                   for (final row in s['architecture']) _kv(row[0], row[1]),
                 ]),
                 _card('推理延遲 · 每手（Apple Silicon CPU）', [
-                  for (final row in s['latency']) _kv(row[0], row[1]),
+                  for (final row in s['latency'])
+                    _kv(row[0], row[1], keyWidth: 132),
                 ]),
                 _chartCard('訓練損失（前 ${s['iters_logged']} 迭代紀錄）', [
                   _Series(
@@ -250,13 +251,15 @@ class _StatsPageState extends State<StatsPage> {
     ),
   );
 
-  Widget _kv(String k, String v) => Padding(
+  /// keyWidth：延遲那張表的欄名是「均衡（32 sims）」這種長字串，
+  /// 96 寬會斷在括號中間，該卡片自己加寬。
+  Widget _kv(String k, String v, {double keyWidth = 96}) => Padding(
     padding: const EdgeInsets.only(bottom: 6),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 96,
+          width: keyWidth,
           child: Text(
             k,
             style: const TextStyle(fontSize: 13, color: Sumi.paperDim),

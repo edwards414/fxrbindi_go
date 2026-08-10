@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>玄石 GoZero — 隱私政策 Privacy Policy</title>
+<style>
+  :root{--ink:#2b2622;--sub:#6b6259;--bg:#f5f0e6;--card:#fffdf8;--line:#ddd3c2;--accent:#8a6d3b}
+  @media (prefers-color-scheme:dark){:root{--ink:#e8e2d8;--sub:#a39a8e;--bg:#1a1714;--card:#221e1a;--line:#3a342c;--accent:#c2a26a}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.85 -apple-system,BlinkMacSystemFont,"Noto Serif TC","PingFang TC",serif;
+       padding:2.5rem 1.25rem}
+  main{max-width:44rem;margin:0 auto;background:var(--card);border:1px solid var(--line);
+       border-radius:6px;padding:2.5rem 2rem}
+  h1{font-size:1.6rem;margin:0 0 .3rem;letter-spacing:.04em}
+  .sub{color:var(--sub);font-size:.9rem;margin:0 0 2rem}
+  h2{font-size:1.1rem;margin:2.2rem 0 .6rem;padding-bottom:.35rem;border-bottom:1px solid var(--line)}
+  .en{color:var(--sub);font-size:.82rem;font-style:italic;font-weight:400}
+  ul{padding-left:1.3rem}
+  li{margin:.4rem 0}
+  code{background:rgba(138,109,59,.12);padding:.1em .4em;border-radius:3px;font-size:.87em}
+  a{color:var(--accent)}
+  .box{background:rgba(138,109,59,.08);border-left:3px solid var(--accent);
+       padding:.9rem 1.1rem;margin:1.2rem 0;border-radius:0 4px 4px 0}
+  footer{max-width:44rem;margin:1.5rem auto 0;color:var(--sub);font-size:.82rem;text-align:center}
+</style>
+</head>
+<body>
+<main>
+  <h1>玄石 GoZero — 隱私政策</h1>
+  <p class="sub">Privacy Policy · 最後更新：2026 年 8 月 11 日</p>
+
+  <div class="box">
+    <strong>一句話：玄石不蒐集任何個人資料。</strong>沒有帳號、沒有登入、沒有分析追蹤、沒有廣告，
+    也沒有任何第三方追蹤 SDK。
+    <span class="en">In short: XuanShi GoZero collects no personal data. No accounts, no analytics, no ads, no third-party tracking SDKs.</span>
+  </div>
+
+  <h2>一、我們不蒐集什麼 <span class="en">What we do not collect</span></h2>
+  <ul>
+    <li>不要求也不接受任何註冊、帳號、電子郵件或電話號碼。</li>
+    <li>不蒐集姓名、生日、性別、地址等身分資料。</li>
+    <li>不存取通訊錄、相片、麥克風、相機、位置或健康資料。</li>
+    <li>不使用 Google Analytics、Firebase、廣告聯播網或任何行為分析工具。</li>
+    <li>不使用 IDFA / 廣告識別碼，因此不需要「App 追蹤透明度」授權。</li>
+  </ul>
+
+  <h2>二、對弈時傳送了什麼 <span class="en">What is sent during a game</span></h2>
+  <p>玄石的圍棋 AI 不在手機上運算，而是由開發者自行維運的引擎伺服器代為思考。
+     你每下一手，app 會把以下內容送到伺服器：</p>
+  <ul>
+    <li>這一局的<strong>棋步序列</strong>（例如「第 40 點」這種盤面座標）。</li>
+    <li>局面設定：<strong>棋力檔位</strong>（輕靈／均衡／深思）、<strong>執黑或執白</strong>、<strong>貼目</strong>、<strong>讓子數</strong>。</li>
+    <li>一組<strong>隨機產生的對局編號</strong>（例如 <code>cf73aa25bcb7</code>），僅用來在同一局中辨識盤面，
+        與你的裝置或身分無關，關閉 app 後即失去意義。</li>
+  </ul>
+  <p>伺服器上每局實際保存的欄位只有四個：棋力檔位、執子顏色、棋步序列、是否認輸。
+     <span class="en">The server stores only four fields per game: level, player colour, move history, and resignation flag.</span></p>
+
+  <h2>三、資料保存多久 <span class="en">Retention</span></h2>
+  <ul>
+    <li>伺服器僅保留最近進行中的少量對局，超出上限後最舊的對局會被自動刪除，不做長期保存。</li>
+    <li>伺服器<strong>不記錄存取日誌</strong>，不留存 IP 位址。</li>
+    <li><strong>你的棋譜紀錄只存在你自己的裝置上</strong>，位於 app 的私有文件目錄，
+        不會同步到雲端。刪除 app 即一併刪除，開發者無從取得。</li>
+  </ul>
+
+  <h2>四、網路傳輸與第三方 <span class="en">Network &amp; third parties</span></h2>
+  <p>app 與引擎伺服器之間的連線全程使用 <strong>HTTPS 加密</strong>（<code>https://go.fxrbindi.com</code>）。</p>
+  <p>連線經由 <strong>Cloudflare</strong> 的網路傳遞，以取得傳輸加密與防護。基於網路運作的本質，
+     Cloudflare 會在其邊緣節點處理連線的技術資訊（例如來源 IP 位址），這屬於 Cloudflare 依其自身政策的處理行為；
+     開發者不會從中取得、匯出或保存這些資料。相關說明見
+     <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Cloudflare 隱私政策</a>。</p>
+  <p>除此之外，玄石不與任何第三方分享、交換或販售資料。</p>
+
+  <h2>五、兒童 <span class="en">Children</span></h2>
+  <p>玄石是單純的圍棋對弈工具，內容適合所有年齡層，且因為不蒐集任何個人資料，
+     使用者為兒童時亦無資料被蒐集之虞。</p>
+
+  <h2>六、你的權利 <span class="en">Your rights</span></h2>
+  <p>由於我們不持有任何能夠識別你的資料，實務上沒有可供查詢、更正或刪除的個人資料。
+     若你希望刪除本機棋譜，於 app 內刪除紀錄或移除 app 即可完成。</p>
+
+  <h2>七、政策變更 <span class="en">Changes</span></h2>
+  <p>本政策若有修改，會更新本頁最上方的日期。重大變更會一併在 app 更新說明中告知。</p>
+
+  <h2>八、聯絡方式 <span class="en">Contact</span></h2>
+  <p>對隱私有任何疑問，請來信
+     <a href="mailto:edwards940428@gmail.com">edwards940428@gmail.com</a>。</p>
+</main>
+<footer>玄石 GoZero · <a href="./">首頁</a> · <a href="./support.html">支援</a></footer>
+</body>
+</html>

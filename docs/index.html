@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>玄石 GoZero — 9 路圍棋對弈</title>
+<meta name="description" content="玄石 GoZero：9 路圍棋對弈 app，對手是完全從零自我對弈學成的圍棋 AI。">
+<style>
+  :root{--ink:#2b2622;--sub:#6b6259;--bg:#f5f0e6;--card:#fffdf8;--line:#ddd3c2;--accent:#8a6d3b;--seal:#a83232}
+  @media (prefers-color-scheme:dark){:root{--ink:#e8e2d8;--sub:#a39a8e;--bg:#1a1714;--card:#221e1a;--line:#3a342c;--accent:#c2a26a;--seal:#c25454}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.85 -apple-system,BlinkMacSystemFont,"Noto Serif TC","PingFang TC",serif;
+       padding:3rem 1.25rem}
+  main{max-width:44rem;margin:0 auto}
+  header{text-align:center;margin-bottom:2.5rem}
+  .seal{display:inline-flex;align-items:center;justify-content:center;
+        width:58px;height:58px;border:2px solid var(--seal);color:var(--seal);
+        border-radius:6px;font-size:30px;font-weight:700;vertical-align:middle}
+  h1{display:inline-block;font-size:3rem;margin:0 0 0 .8rem;letter-spacing:.1em;vertical-align:middle}
+  .tag{color:var(--sub);font-size:.95rem;margin:.9rem 0 0;letter-spacing:.05em}
+  section{background:var(--card);border:1px solid var(--line);border-radius:6px;
+          padding:1.8rem 1.8rem;margin-bottom:1.2rem}
+  h2{font-size:1.05rem;margin:0 0 .9rem;letter-spacing:.05em}
+  ul{padding-left:1.25rem;margin:0}
+  li{margin:.45rem 0}
+  dt{font-weight:600;margin-top:.9rem}
+  dd{margin:.15rem 0 0;color:var(--sub);font-size:.93rem}
+  a{color:var(--accent)}
+  .links{text-align:center;margin-top:2rem;font-size:.9rem;color:var(--sub)}
+  .links a{margin:0 .6rem}
+  .note{color:var(--sub);font-size:.86rem;margin-top:1rem}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="seal">弈</span><h1>玄石</h1>
+    <p class="tag">GoZero · 9 路圍棋對弈</p>
+  </header>
+
+  <section>
+    <h2>這是什麼</h2>
+    <p style="margin:0">一款 9 路圍棋對弈 app。對手是自行訓練的圍棋 AI——
+       完全從零開始自我對弈學成，沒有讀過任何一局人類棋譜。
+       一局約十分鐘，適合隨手來一盤。</p>
+  </section>
+
+  <section>
+    <h2>特色</h2>
+    <ul>
+      <li><strong>三段棋力</strong>：輕靈（不搜索）、均衡（32 次搜索）、深思（128 次搜索）。</li>
+      <li><strong>即時勝率</strong>：每一手之後都看得到 AI 對局面的評估與整局的勝率曲線。</li>
+      <li><strong>可調規則</strong>：貼目與讓子都能自訂，讓子最多四子。</li>
+      <li><strong>對局復盤</strong>：棋譜留在自己的裝置上，隨時回顧。</li>
+      <li><strong>模型性能</strong>：app 內附這個 AI 的訓練曲線與實測勝率。</li>
+      <li><strong>乾淨</strong>：不需註冊、沒有廣告、不蒐集個人資料。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>AI 是怎麼練出來的</h2>
+    <dl style="margin:0">
+      <dt>訓練方式</dt>
+      <dd>AlphaZero 式自我對弈強化學習，零人類棋譜。</dd>
+      <dt>搜索</dt>
+      <dd>Gumbel 根節點選擇（DeepMind, 2022）——無偏的策略改進，
+          32 次模擬就能達到傳統 PUCT 需要 800 次的效果。</dd>
+      <dt>網路</dt>
+      <dd>殘差網路加 KataGo 式全局池化偏置，讓每一層都看得到全盤資訊。</dd>
+      <dt>規則</dt>
+      <dd>中國規則（Tromp-Taylor 計點），預設貼目 7.5，禁全同型。</dd>
+    </dl>
+    <p class="note">整條訓練管線都是 JAX，自對弈在 GPU 上向量化執行，單卡同時下上千盤棋。
+       原始碼公開於 GitHub。</p>
+  </section>
+
+  <div class="links">
+    <a href="./privacy.html">隱私政策</a>·
+    <a href="./support.html">支援與常見問題</a>·
+    <a href="https://github.com/edwards414/fxrbindi_go" rel="noopener">原始碼</a>·
+    <a href="mailto:edwards940428@gmail.com">聯絡</a>
+  </div>
+</main>
+</body>
+</html>

@@ -2,11 +2,18 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-/// 引擎伺服器 (gozero/server.py)，跑在使用者家中 server，路由器把 8765 轉發到公網固定 IP。
-/// ⚠️ 明文 HTTP（沒有網域就沒有正規 TLS 憑證）。裸 IP 沒法用 NSExceptionDomains 精準例外
-/// （Apple 不保證對 IP 字串生效），Info.plist 用 NSAllowsArbitraryLoads 整個 app 放行明文。
-/// 本機開發要直連時改回 'http://127.0.0.1:8765'。
-const engineBase = 'http://59.125.215.63:8765';
+/// 引擎伺服器 (gozero/server.py)。跑在家中主機，但不對外開 port——
+/// 由同一台機器上的 cloudflared 建立 Cloudflare Tunnel 對外，
+/// 所以公網位址是正規 TLS 的 https://go.fxrbindi.com（憑證由 Cloudflare 簽發）。
+/// 家用 IP 不外露，IP 變動也不影響 app；ATS 因此不需要任何例外。
+///
+/// 本機開發直連引擎：
+///   flutter run --dart-define=ENGINE_BASE=http://127.0.0.1:8765
+/// （模擬器連 localhost 需要 Info.plist 的 NSAllowsLocalNetworking，已保留。）
+const engineBase = String.fromEnvironment(
+  'ENGINE_BASE',
+  defaultValue: 'https://go.fxrbindi.com',
+);
 
 class GameState {
   final String gameId;
@@ -64,12 +71,23 @@ class EngineInfo {
 }
 
 class EngineApi {
+  /// 明確標示自己是誰。Cloudflare 會依 User-Agent 判斷 bot——預設的
+  /// `Dart/x.y (dart:io)` 目前放行，但那是別人的清單說了算；自報名號比較穩。
+  static const _headers = {
+    'Content-Type': 'application/json',
+    'User-Agent': 'XuanShiGoZero/1.0 (+https://fxrbindi.com)',
+  };
+
   Future<Map<String, dynamic>> _post(
     String path,
     Map<String, dynamic> body,
   ) async {
     final r = await http
-        .post(Uri.parse('$engineBase$path'), body: jsonEncode(body))
+        .post(
+          Uri.parse('$engineBase$path'),
+          headers: _headers,
+          body: jsonEncode(body),
+        )
         .timeout(const Duration(seconds: 60));
     final j = jsonDecode(r.body) as Map<String, dynamic>;
     if (r.statusCode != 200) {
@@ -80,8 +98,9 @@ class EngineApi {
 
   Future<EngineInfo> health() async {
     final r = await http
-        .get(Uri.parse('$engineBase/health'))
-        .timeout(const Duration(seconds: 3));
+        .get(Uri.parse('$engineBase/health'), headers: _headers)
+        // 冷啟動的 TLS 握手 + 跨海往返，3 秒太緊（審查員在美國）
+        .timeout(const Duration(seconds: 10));
     final j = jsonDecode(r.body);
     return EngineInfo(j['model'], j['iteration']);
   }
@@ -103,7 +122,10 @@ class EngineApi {
   /// 唯讀狀態（timeout 後重新同步用）
   Future<GameState> state(String gameId) async {
     final r = await http
-        .get(Uri.parse('$engineBase/state?game_id=$gameId'))
+        .get(
+          Uri.parse('$engineBase/state?game_id=$gameId'),
+          headers: _headers,
+        )
         .timeout(const Duration(seconds: 5));
     final j = jsonDecode(r.body) as Map<String, dynamic>;
     if (r.statusCode != 200) {

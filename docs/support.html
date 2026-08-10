@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>玄石 GoZero — 支援 Support</title>
+<style>
+  :root{--ink:#2b2622;--sub:#6b6259;--bg:#f5f0e6;--card:#fffdf8;--line:#ddd3c2;--accent:#8a6d3b}
+  @media (prefers-color-scheme:dark){:root{--ink:#e8e2d8;--sub:#a39a8e;--bg:#1a1714;--card:#221e1a;--line:#3a342c;--accent:#c2a26a}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.85 -apple-system,BlinkMacSystemFont,"Noto Serif TC","PingFang TC",serif;
+       padding:2.5rem 1.25rem}
+  main{max-width:44rem;margin:0 auto;background:var(--card);border:1px solid var(--line);
+       border-radius:6px;padding:2.5rem 2rem}
+  h1{font-size:1.6rem;margin:0 0 .3rem;letter-spacing:.04em}
+  .sub{color:var(--sub);font-size:.9rem;margin:0 0 2rem}
+  h2{font-size:1.1rem;margin:2.2rem 0 .6rem;padding-bottom:.35rem;border-bottom:1px solid var(--line)}
+  dt{font-weight:600;margin-top:1.1rem}
+  dd{margin:.3rem 0 0;color:var(--sub)}
+  a{color:var(--accent)}
+  .box{background:rgba(138,109,59,.08);border-left:3px solid var(--accent);
+       padding:.9rem 1.1rem;margin:1.2rem 0;border-radius:0 4px 4px 0}
+  footer{max-width:44rem;margin:1.5rem auto 0;color:var(--sub);font-size:.82rem;text-align:center}
+</style>
+</head>
+<body>
+<main>
+  <h1>玄石 GoZero — 支援</h1>
+  <p class="sub">Support · 9 路圍棋對弈</p>
+
+  <div class="box">
+    有問題、回報錯誤或建議功能，歡迎來信
+    <a href="mailto:edwards940428@gmail.com">edwards940428@gmail.com</a>，
+    通常一兩天內回覆。
+  </div>
+
+  <h2>常見問題</h2>
+  <dl>
+    <dt>顯示「引擎連線失敗」怎麼辦？</dt>
+    <dd>玄石的 AI 在雲端運算，需要網路連線。請先確認裝置已連上網路；
+        若網路正常仍連不上，可能是引擎伺服器正在維護，稍候再試即可。棋譜紀錄不受影響。</dd>
+
+    <dt>三個棋力檔位差在哪裡？</dt>
+    <dd>三檔用的是同一個神經網路，差別在每手搜索的次數：
+        <strong>輕靈</strong>不做搜索、<strong>均衡</strong>搜索 32 次、<strong>深思</strong>搜索 128 次。
+        搜索次數愈多棋力愈強，思考時間也愈長（深思約一秒多一手）。</dd>
+
+    <dt>為什麼是 9 路而不是 19 路？</dt>
+    <dd>9 路棋盤一局約十分鐘，適合隨時來一盤，且戰鬥密度高、適合練習基本手筋與死活。</dd>
+
+    <dt>採用什麼規則？</dt>
+    <dd>中國規則（Tromp-Taylor 計點），預設貼目 7.5 目，禁全同型（positional superko）。
+        對弈設定頁可自行調整貼目與讓子數。</dd>
+
+    <dt>棋譜會不會不見？</dt>
+    <dd>對局紀錄存在你自己的裝置上，不會上傳雲端。刪除 app 會一併刪除紀錄，
+        請留意這個動作無法復原。</dd>
+
+    <dt>會蒐集我的個人資料嗎？</dt>
+    <dd>不會。沒有帳號、沒有追蹤、沒有廣告。詳見<a href="./privacy.html">隱私政策</a>。</dd>
+
+    <dt>「性能」頁的數字是什麼意思？</dt>
+    <dd>那是這個 AI 在訓練過程中的實測成績，包含對戰不同對手的勝率與訓練曲線，
+        資料由訓練紀錄直接產生。</dd>
+  </dl>
+
+  <h2>關於這個 AI</h2>
+  <p>玄石的對手是自研的圍棋 AI，訓練方法屬於 AlphaZero 系：完全從零開始自我對弈學習，
+     沒有使用任何人類棋譜。搜索採用 DeepMind 2022 年提出的 Gumbel 根節點選擇，
+     網路使用 KataGo 式的全局池化殘差結構。</p>
+
+  <h2>聯絡</h2>
+  <p>電子郵件：<a href="mailto:edwards940428@gmail.com">edwards940428@gmail.com</a><br>
+     原始碼：<a href="https://github.com/edwards414/fxrbindi_go" rel="noopener">github.com/edwards414/fxrbindi_go</a></p>
+</main>
+<footer>玄石 GoZero · <a href="./">首頁</a> · <a href="./privacy.html">隱私政策</a></footer>
+</body>
+</html>
