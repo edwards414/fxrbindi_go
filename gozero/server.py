@@ -6,8 +6,10 @@ Usage:
 
 The iOS-simulator app talks to http://127.0.0.1:8765 (the simulator shares
 the host network).  Threaded: one thread per connection so a slow/stalled
-client can't wedge everyone else, but all engine access is serialized with
-a lock since JAX search/state mutation isn't safe to run concurrently.
+client can't wedge everyone else.  Each game has its own lock (double-taps
+can't corrupt a board) while different games run inference concurrently,
+capped by a global semaphore so overload degrades to 503s instead of
+unbounded latency for everyone.
 
 Endpoints (JSON in/out):
     GET  /health                          -> model info
@@ -28,6 +30,7 @@ import time
 import traceback
 import uuid
 from collections import OrderedDict
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import jax
@@ -44,6 +47,12 @@ DEFAULT_KOMI = 7.5  # the pgx training komi; other values are legal but the
                     # terminal nodes with the game's own komi)
 HANDICAPS = (0, 2, 3, 4)
 MAX_BODY = 64 * 1024  # 請求主體上限；正常請求不到 1 KB
+SAVE_INTERVAL = int(os.environ.get("GOZERO_SAVE_INTERVAL", 300))
+# 定期存檔（秒）；SIGTERM 之外的死法（kill -9、當機）最多只丟這個窗口內的進度
+
+
+class EngineBusy(Exception):
+    """推理排隊已滿，請求該被拒絕（503）而不是排到天荒地老。"""
 
 
 class Game:
@@ -76,6 +85,11 @@ class Engine:
     MAX_GAMES = 2000
     GAME_TTL = 6 * 3600  # 6 小時沒有任何動作才視為棄局
     MAX_KOMI_CACHE = 12  # 每個貼目都要各自 JIT 編譯，快取需有上限
+    # 實測（10 核 CPU）併發搜尋到 4 就吃滿吞吐，再多只是拉長所有人的延遲；
+    # 排隊上限約 3 輪推理的量，超過表示已經過載，直接回 503 讓 app 顯示忙碌。
+    # 部署主機核數不同時可用環境變數調，不必改碼重建映像。
+    SEARCH_SLOTS = int(os.environ.get("GOZERO_SEARCH_SLOTS", 4))
+    MAX_WAITERS = int(os.environ.get("GOZERO_MAX_WAITERS", 12))
 
     def __init__(self, ckpt_path: str):
         self.env, self.net, self.params, ck = load_ckpt(ckpt_path)
@@ -101,6 +115,10 @@ class Engine:
         self.games_lock = threading.Lock()
         # 保護 JIT 快取的填充；_env 會被 env_fns/search_fn 巢狀呼叫，故用 RLock
         self.cache_lock = threading.RLock()
+        # 推理併發閘門：見 SEARCH_SLOTS/MAX_WAITERS 的說明
+        self._slots = threading.Semaphore(self.SEARCH_SLOTS)
+        self._waiters = 0
+        self._admit_lock = threading.Lock()
         # trigger compilation up-front so the first app move isn't slow
         g = Game(self, "easy", "black")
         self.env_fns(DEFAULT_KOMI)[1](g.state, jnp.int32(0))
@@ -146,6 +164,30 @@ class Engine:
                 self._searches[(komi, level)] = make_search_fn(
                     self._env(komi), self.net, num_simulations=LEVELS[level])
             return self._searches[(komi, level)]
+
+    @contextmanager
+    def inference_slot(self):
+        """佔一個推理名額；排隊已滿或等太久就丟 EngineBusy（handler 回 503）。
+
+        鎖序固定為 slot -> game.lock：同一局連點時第二個請求會佔著名額等
+        game.lock，浪費一點名額但不會死鎖（持有 game.lock 的人必然已有名額，
+        推理完就會放）。"""
+        with self._admit_lock:
+            if self._waiters >= self.MAX_WAITERS:
+                raise EngineBusy
+            self._waiters += 1
+        try:
+            # 名額全滿時最壞 12 個 waiter × ~1s/手，30 秒只有掛掉才會等到
+            ok = self._slots.acquire(timeout=30)
+        finally:
+            with self._admit_lock:  # 拿到名額就不算在排隊，計數只涵蓋真正在等的
+                self._waiters -= 1
+        if not ok:
+            raise EngineBusy
+        try:
+            yield
+        finally:
+            self._slots.release()
 
     # -- board / evaluation helpers -----------------------------------------
     def board(self, game: Game) -> list[int]:
@@ -377,6 +419,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             return self._post()
+        except EngineBusy:
+            return self._send({"error": "engine busy, try again shortly"}, 503)
         except ValueError as err:
             return self._send({"error": str(err)}, 400)
         except Exception:
@@ -428,10 +472,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send({"error": "bad handicap"}, 400)
             game_id = uuid.uuid4().hex[:12]
             # 先把開局算完再收錄：這段期間別的執行緒看不到這局，不必上鎖搶。
-            game = Game(e, level, human, komi, handicap)
-            e.apply_handicap(game)
-            to_move = "black" if len(game.history) % 2 == 0 else "white"
-            ai = e.ai_move(game) if to_move != human else None
+            with e.inference_slot():
+                game = Game(e, level, human, komi, handicap)
+                e.apply_handicap(game)
+                to_move = "black" if len(game.history) % 2 == 0 else "white"
+                ai = e.ai_move(game) if to_move != human else None
             e.register(game_id, game)
             return self._send(e.snapshot(game, game_id, ai_move=ai))
 
@@ -440,9 +485,14 @@ class Handler(BaseHTTPRequestHandler):
         if game is None:
             return self._send({"error": "unknown game"}, 404)
 
-        # 從這裡開始只鎖這一局：別人的對局照常並行推理。
-        with game.lock:
-            if self.path == "/move":
+        if self.path == "/resign":  # 不推理，不佔名額：過載中也永遠投得了降
+            with game.lock:
+                game.resigned_by = game.human_color
+                return self._send(e.snapshot(game, gid))
+
+        # 從這裡開始只鎖這一局：別人的對局照常並行推理（總量由名額把關）。
+        if self.path == "/move":
+            with e.inference_slot(), game.lock:
                 if game.resigned_by or bool(game.state.terminated | game.state.truncated):
                     return self._send({"error": "game over"}, 400)
                 try:
@@ -458,7 +508,8 @@ class Handler(BaseHTTPRequestHandler):
                     ai = e.ai_move(game)
                 return self._send(e.snapshot(game, gid, ai_move=ai))
 
-            if self.path == "/undo":
+        if self.path == "/undo":
+            with e.inference_slot(), game.lock:
                 # drop plies until it's the human's turn again (min one round);
                 # never into the handicap setup prefix
                 human_is_black = game.human_color == "black"
@@ -476,11 +527,7 @@ class Handler(BaseHTTPRequestHandler):
                     e.ai_move(game)
                 return self._send(e.snapshot(game, gid))
 
-            if self.path == "/resign":
-                game.resigned_by = game.human_color
-                return self._send(e.snapshot(game, gid))
-
-            return self._send({"error": "not found"}, 404)
+        return self._send({"error": "not found"}, 404)
 
 
 class Server(ThreadingHTTPServer):
@@ -508,6 +555,17 @@ def main():
     atexit.register(lambda: Handler.engine.save_games(state_file))
     signal.signal(signal.SIGTERM, save_and_exit)
     signal.signal(signal.SIGINT, save_and_exit)
+
+    def autosave():
+        # 只靠 SIGTERM 存檔的話，kill -9 / OOM / 當機會丟掉所有進行中的棋局
+        while True:
+            time.sleep(SAVE_INTERVAL)
+            try:
+                Handler.engine.save_games(state_file)
+            except Exception:
+                traceback.print_exc()
+
+    threading.Thread(target=autosave, daemon=True, name="autosave").start()
     print(f"engine ready (iteration {Handler.engine.iteration}), "
           f"serving on http://{args.host}:{args.port}", flush=True)
     Server((args.host, args.port), Handler).serve_forever()
