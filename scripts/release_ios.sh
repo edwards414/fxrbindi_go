@@ -36,11 +36,7 @@ eval "$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$REPO/.env")"
 : "${ASC_KEY_PATH:?.env 缺 ASC_KEY_PATH}"
 [ -f "$ASC_KEY_PATH" ] || { echo "找不到金鑰 $ASC_KEY_PATH" >&2; exit 1; }
 
-cd "$REPO/app"
-BUILD_NUM=$(git rev-list --count HEAD)
-EXPORT_DIR=build/ios/upload
-EXPORT_OPTS=$(mktemp -t ExportOptionsLocal).plist
-sed 's|<string>upload</string>|<string>export</string>|' ios/ExportOptions.plist > "$EXPORT_OPTS"
+BUILD_NUM=$(cd "$REPO" && git rev-list --count HEAD)
 
 # 每一步都各自判斷成敗。舊版把整段包在 `if { ... }` 裡，而 `set -e` 在 if 的
 # 條件式內不生效，xcodebuild 失敗後還是會跑到最後那句 echo，於是 log 上寫著
@@ -51,19 +47,35 @@ fail() {
   exit 1
 }
 
-{
-  echo "=== $(date '+%F %T') build $BUILD_NUM 開始 ==="
-} >> "$LOG"
+echo "=== $(date '+%F %T') build $BUILD_NUM 開始 ===" >> "$LOG"
 
-# native assets 的 framework 偶爾沾到 macOS 擴充屬性（com.apple.FinderInfo），
-# codesign 會直接拒簽並回報 "resource fork, Finder information, or similar detritus"。
-rm -rf build/native_assets
+# 一定要在 iCloud 同步範圍外建置。這個 repo 在 ~/Desktop 底下，而 macOS 的
+# 「桌面與文件」同步是開的，file provider 會不斷幫檔案蓋上 com.apple.FinderInfo，
+# codesign 於是拒簽：
+#   objective_c.framework: resource fork, Finder information, or similar detritus not allowed
+# 而且清不掉——framework 在建置中重新產生後又馬上被蓋回去，xattr -cr 只是徒勞
+# （2026-08-12 實測：先清再 build 一樣失敗）。把 app/ 複製到 /private/tmp 建置則 100% 成功。
+# build/ 不複製，讓 WORK 保留自己的產物以支援增量建置。
+WORK=/private/tmp/xuanshi-build
+mkdir -p "$WORK"
+rsync -a --delete --exclude build --exclude .dart_tool --exclude ephemeral \
+  "$REPO/app/" "$WORK/app/" >> "$LOG" 2>&1 || fail "rsync 到建置目錄"
 
-flutter build ipa --build-number="$BUILD_NUM" >> "$LOG" 2>&1 || fail "flutter build ipa"
+cd "$WORK/app"
+EXPORT_DIR=build/ios/upload
+EXPORT_OPTS=$(mktemp -t ExportOptionsLocal).plist
+sed 's|<string>upload</string>|<string>export</string>|' ios/ExportOptions.plist > "$EXPORT_OPTS"
+
+# flutter build ipa 最後會自己試著匯出一次，用的是 ios/ExportOptions.plist
+# （destination=upload、沒帶 API 金鑰），必定噴 "No Accounts"——但它仍回 0，
+# 而我們只要它產出的 archive。所以不看退出碼，直接檢查 archive 在不在。
+flutter build ipa --build-number="$BUILD_NUM" >> "$LOG" 2>&1 || true
+ARCHIVE=build/ios/archive/Runner.xcarchive
+[ -d "$ARCHIVE" ] || fail "flutter build ipa（沒產出 archive）"
 
 rm -rf "$EXPORT_DIR"
 xcodebuild -exportArchive \
-  -archivePath build/ios/archive/Runner.xcarchive \
+  -archivePath "$ARCHIVE" \
   -exportOptionsPlist "$EXPORT_OPTS" \
   -exportPath "$EXPORT_DIR" \
   -allowProvisioningUpdates \
