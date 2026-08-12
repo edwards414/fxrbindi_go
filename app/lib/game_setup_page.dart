@@ -3,6 +3,36 @@ import 'package:flutter/material.dart';
 import 'game_page.dart';
 import 'main.dart';
 
+/// 貼目說明裡的一條：朱印方章字符 + 一段文字。
+class _KomiNote extends StatelessWidget {
+  final String glyph;
+  final String text;
+
+  const _KomiNote(this.glyph, this.text);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SealGlyph(glyph, size: 22, fontSize: 14),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Sumi.paperDim,
+              height: 1.6,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 /// 對弈設定頁：從首頁按「開始對弈」進入，選好執子與棋力後才進棋盤。
 class GameSetupPage extends StatefulWidget {
   const GameSetupPage({super.key});
@@ -153,7 +183,14 @@ class _GameSetupPageState extends State<GameSetupPage> {
                         onChanged: (_) => setState(() => komiError = null),
                       ),
                     ],
-                  ]),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        '貼目是終局時加給白方的補償，用來抵銷黑棋先行之利',
+                        style: TextStyle(fontSize: 12, color: Sumi.paperDim),
+                      ),
+                    ),
+                  ], trailing: _helpLink(_showKomiHelp)),
                   const SizedBox(height: 18),
                   _section('讓子', [
                     Wrap(
@@ -222,21 +259,92 @@ class _GameSetupPageState extends State<GameSetupPage> {
     );
   }
 
-  Widget _section(String title, List<Widget> children) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        title,
-        style: const TextStyle(
-          fontSize: 14,
-          color: Sumi.paperDim,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 4,
+  Widget _section(String title, List<Widget> children, {Widget? trailing}) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Sumi.paperDim,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 4,
+                ),
+              ),
+              if (trailing != null) ...[const Spacer(), trailing],
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...children,
+        ],
+      );
+
+  /// 章節標題右側的「說明」連結。用朱印方章字符當圖示，跟 SealGlyph 的
+  /// 品牌視覺語言一致（見 main.dart 為何不用 Material 圖示）。
+  Widget _helpLink(VoidCallback onTap) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: onTap,
+    child: const Padding(
+      padding: EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SealGlyph('問', size: 16, fontSize: 11),
+          SizedBox(width: 6),
+          Text(
+            '說明',
+            style: TextStyle(
+              fontSize: 13,
+              color: Sumi.paperDim,
+              decoration: TextDecoration.underline,
+              decorationColor: Sumi.paperDim,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  void _showKomiHelp() => showDialog<void>(
+    context: context,
+    builder: (_) => AlertDialog(
+      backgroundColor: Sumi.panel,
+      title: const Text(
+        '關於貼目',
+        style: TextStyle(
+          color: Sumi.paper,
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
         ),
       ),
-      const SizedBox(height: 8),
-      ...children,
-    ],
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            _KomiNote('先', '黑棋先落子，天生佔了先行之利；在九路小盤上這個便宜尤其明顯。'),
+            _KomiNote(
+              '補',
+              '終局計點時，把貼目加到白方，用來抵銷這個先行之利。'
+                  '玄石採中國規則（Tromp-Taylor 計點），預設貼目 7.5 目。',
+            ),
+            _KomiNote('半', '貼目帶半目，是為了讓雙方總分不可能相等，確保一定分出勝負、不會和棋。'),
+            _KomiNote('讓', '讓子局中黑方開局已先佔數子，先行之利不再存在，因此慣例把貼目降到 0.5。'),
+            _KomiNote('調', '調高貼目對白方有利，調低則對黑方有利。想加重讓步就往上調。'),
+          ],
+        ),
+      ),
+      actions: [
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Sumi.seal),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
   );
 
   Widget _chip(String label, bool selected, VoidCallback onTap) =>

@@ -22,3 +22,6 @@ __pycache__/
 # downloaded external engines (KataGo binary + nets)
 engines/
 *.p8
+
+# macOS Finder
+.DS_Store
