@@ -26,41 +26,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  python-tests:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m unittest discover -s tests -v
-      - run: python -m py_compile gozero/job_queue.py gozero/server.py
+      - name: Test inference queue
+        run: |
+          python -m unittest discover -s tests -v
+          python -m py_compile gozero/job_queue.py gozero/server.py
 
-  flutter-tests:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version: "3.41.9"
           cache: true
-      - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
+      - name: Test Flutter queue client
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
 
-  container-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - run: docker build --tag gozero-server:ci .
+      - name: Build server image
+        run: docker build --tag gozero-server:ci .
 
   deploy:
     if: github.ref == 'refs/heads/main'
-    needs: [python-tests, flutter-tests, container-build]
+    needs: ci
     runs-on: ubuntu-latest
     environment: production
     env:
