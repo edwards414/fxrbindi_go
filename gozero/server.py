@@ -5,18 +5,20 @@ Usage:
     python -m gozero.server --ckpt /models/latest.pkl --host 0.0.0.0 --port 8765
 
 The iOS-simulator app talks to http://127.0.0.1:8765 (the simulator shares
-the host network).  Threaded: one thread per connection so a slow/stalled
-client can't wedge everyone else.  Each game has its own lock (double-taps
-can't corrupt a board) while different games run inference concurrently,
-capped by a global semaphore so overload degrades to 503s instead of
-unbounded latency for everyone.
+the host network).  HTTP connections are threaded, but inference runs in a
+bounded background queue.  Each game has its own lock (double-taps can't
+corrupt a board) while different games run concurrently up to the worker
+limit.  Clients receive a job id and can show queue progress instead of
+holding an HTTP request open.
 
 Endpoints (JSON in/out):
-    GET  /health                          -> model info
-    POST /new    {level, human_color, komi?, handicap?} -> fresh game, AI opens if to move
-    POST /move   {game_id, action}        -> human move + AI reply (action 81 = pass)
-    POST /undo   {game_id}                -> revert one full round (human+AI plies)
-    POST /resign {game_id}                -> human resigns
+    GET  /health                          -> model and queue info
+    GET  /queue                           -> current inference capacity
+    GET  /jobs/<job_id>                   -> queued/running/completed result
+    POST /new    {level, human_color, komi?, handicap?} -> 202 inference job
+    POST /move   {game_id, action, expected_moves?}     -> 202 inference job
+    POST /undo   {game_id, expected_moves?}             -> 202 inference job
+    POST /resign {game_id}                -> immediate game result
 """
 from __future__ import annotations
 
@@ -24,14 +26,15 @@ import argparse
 import atexit
 import json
 import os
+import re
 import signal
 import threading
 import time
 import traceback
 import uuid
 from collections import OrderedDict
-from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 import jax
 import jax.numpy as jnp
@@ -39,6 +42,7 @@ import numpy as np
 
 from pgx.go import Go
 
+from gozero.job_queue import InferenceJobQueue, PublicJobError, QueueFull
 from gozero.mcts import batch_of_one, load_ckpt, make_search_fn
 
 LEVELS = {"easy": 0, "normal": 32, "strong": 128}  # MCTS simulations
@@ -49,10 +53,6 @@ HANDICAPS = (0, 2, 3, 4)
 MAX_BODY = 64 * 1024  # 請求主體上限；正常請求不到 1 KB
 SAVE_INTERVAL = int(os.environ.get("GOZERO_SAVE_INTERVAL", 300))
 # 定期存檔（秒）；SIGTERM 之外的死法（kill -9、當機）最多只丟這個窗口內的進度
-
-
-class EngineBusy(Exception):
-    """推理排隊已滿，請求該被拒絕（503）而不是排到天荒地老。"""
 
 
 class Game:
@@ -85,11 +85,13 @@ class Engine:
     MAX_GAMES = 2000
     GAME_TTL = 6 * 3600  # 6 小時沒有任何動作才視為棄局
     MAX_KOMI_CACHE = 12  # 每個貼目都要各自 JIT 編譯，快取需有上限
-    # 實測（10 核 CPU）併發搜尋到 4 就吃滿吞吐，再多只是拉長所有人的延遲；
-    # 排隊上限約 3 輪推理的量，超過表示已經過載，直接回 503 讓 app 顯示忙碌。
-    # 部署主機核數不同時可用環境變數調，不必改碼重建映像。
+    # 實測（10 核 CPU）併發搜尋到 4 就吃滿吞吐，再多只是拉長所有人的延遲。
+    # HTTP 請求只負責入列；固定數量的背景 worker 才能執行推理。
+    # GOZERO_MAX_WAITERS 是舊版環境變數，保留作為向後相容的 fallback。
     SEARCH_SLOTS = int(os.environ.get("GOZERO_SEARCH_SLOTS", 4))
-    MAX_WAITERS = int(os.environ.get("GOZERO_MAX_WAITERS", 12))
+    MAX_QUEUE = int(os.environ.get(
+        "GOZERO_MAX_QUEUE", os.environ.get("GOZERO_MAX_WAITERS", 64)))
+    JOB_TTL = int(os.environ.get("GOZERO_JOB_TTL", 15 * 60))
 
     def __init__(self, ckpt_path: str):
         self.env, self.net, self.params, ck = load_ckpt(ckpt_path)
@@ -115,10 +117,6 @@ class Engine:
         self.games_lock = threading.Lock()
         # 保護 JIT 快取的填充；_env 會被 env_fns/search_fn 巢狀呼叫，故用 RLock
         self.cache_lock = threading.RLock()
-        # 推理併發閘門：見 SEARCH_SLOTS/MAX_WAITERS 的說明
-        self._slots = threading.Semaphore(self.SEARCH_SLOTS)
-        self._waiters = 0
-        self._admit_lock = threading.Lock()
         # trigger compilation up-front so the first app move isn't slow
         g = Game(self, "easy", "black")
         self.env_fns(DEFAULT_KOMI)[1](g.state, jnp.int32(0))
@@ -126,6 +124,11 @@ class Engine:
             self.search_fn(DEFAULT_KOMI, name)(
                 self.params, jax.random.PRNGKey(0), batch_of_one(g.state))
         self.forward(batch_of_one(g.state).observation)
+        self.jobs = InferenceJobQueue(
+            workers=self.SEARCH_SLOTS,
+            max_pending=self.MAX_QUEUE,
+            result_ttl=self.JOB_TTL,
+        )
 
     def _trim_komi_cache(self):
         """淘汰最久沒用到的貼目，預設貼目永久保留。呼叫端須持有 cache_lock。"""
@@ -164,30 +167,6 @@ class Engine:
                 self._searches[(komi, level)] = make_search_fn(
                     self._env(komi), self.net, num_simulations=LEVELS[level])
             return self._searches[(komi, level)]
-
-    @contextmanager
-    def inference_slot(self):
-        """佔一個推理名額；排隊已滿或等太久就丟 EngineBusy（handler 回 503）。
-
-        鎖序固定為 slot -> game.lock：同一局連點時第二個請求會佔著名額等
-        game.lock，浪費一點名額但不會死鎖（持有 game.lock 的人必然已有名額，
-        推理完就會放）。"""
-        with self._admit_lock:
-            if self._waiters >= self.MAX_WAITERS:
-                raise EngineBusy
-            self._waiters += 1
-        try:
-            # 名額全滿時最壞 12 個 waiter × ~1s/手，30 秒只有掛掉才會等到
-            ok = self._slots.acquire(timeout=30)
-        finally:
-            with self._admit_lock:  # 拿到名額就不算在排隊，計數只涵蓋真正在等的
-                self._waiters -= 1
-        if not ok:
-            raise EngineBusy
-        try:
-            yield
-        finally:
-            self._slots.release()
 
     # -- board / evaluation helpers -----------------------------------------
     def board(self, game: Game) -> list[int]:
@@ -380,11 +359,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quiet
         pass
 
-    def _send(self, obj, code=200):
+    def _send(self, obj, code=200, headers=None):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, str(value))
         self.end_headers()
         self.wfile.write(body)
 
@@ -397,16 +379,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get(self):
         e = self.engine
-        if self.path.startswith("/state"):
+        path = urlparse(self.path).path
+        if path.startswith("/jobs/"):
+            job_id = path.removeprefix("/jobs/")
+            if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+                return self._send({"error": "unknown job"}, 404)
+            view = e.jobs.view(job_id)
+            if view is None:
+                return self._send({"error": "unknown or expired job"}, 404)
+            return self._send(view)
+        if path == "/queue":
+            return self._send(e.jobs.status())
+        if path == "/state":
             # read-only resync endpoint: /state?game_id=xxx
-            from urllib.parse import parse_qs, urlparse
             gid = parse_qs(urlparse(self.path).query).get("game_id", [""])[0]
             game = e.get_game(gid)
             if game is None:
                 return self._send({"error": "unknown game"}, 404)
             with game.lock:
                 return self._send(e.snapshot(game, gid))
-        if self.path != "/health":
+        if path != "/health":
             return self._send({"error": "not found"}, 404)
         cfg = e.config
         self._send({
@@ -414,13 +406,18 @@ class Handler(BaseHTTPRequestHandler):
             "model": f"gozero {cfg['env_id']} {cfg['channels']}ch x {cfg['blocks']}blk",
             "iteration": e.iteration,
             "board_size": e.size,
+            "queue": e.jobs.status(),
         })
 
     def do_POST(self):
         try:
             return self._post()
-        except EngineBusy:
-            return self._send({"error": "engine busy, try again shortly"}, 503)
+        except QueueFull:
+            return self._send(
+                {"error": "inference queue full", "queue": self.engine.jobs.status()},
+                503,
+                {"Retry-After": 5},
+            )
         except ValueError as err:
             return self._send({"error": str(err)}, 400)
         except Exception:
@@ -449,6 +446,60 @@ class Handler(BaseHTTPRequestHandler):
             return None, True
         return req, None
 
+    def _request_id(self, req) -> str | None:
+        request_id = self.headers.get("Idempotency-Key") or req.get("request_id")
+        if request_id is None:
+            return None
+        if not isinstance(request_id, str) or not re.fullmatch(
+                r"[A-Za-z0-9._:-]{8,128}", request_id):
+            raise ValueError("bad request_id")
+        return request_id
+
+    @staticmethod
+    def _expected_moves(req) -> int | None:
+        value = req.get("expected_moves")
+        if value is None:  # 舊版 App 仍可使用，但新版一律會送，提供重送保護。
+            return None
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise ValueError("bad expected_moves")
+        if value < 0:
+            raise ValueError("bad expected_moves")
+        return value
+
+    def _submit(self, operation: str, req: dict, work):
+        request_id = self._request_id(req)
+        job, _ = self.engine.jobs.submit(
+            operation,
+            work,
+            request_id=request_id,
+            # 只有未來通過伺服器端購買驗證的程式碼才能改成 premium；
+            # 不接受 client 自報 priority，避免免費玩家偽造插隊。
+            lane="standard",
+        )
+        if request_id is None:
+            # 已安裝的舊版 App 不認得 202 job envelope。讓它仍走同一個有界
+            # worker pool，但在 handler 端代為等待並回傳舊的 GameState 格式。
+            view = self.engine.jobs.wait(job.id, timeout=55)
+            if view and view["status"] == "completed":
+                return self._send(view["result"])
+            if view and view["status"] == "failed":
+                return self._send(
+                    {"error": view.get("error", "inference failed")},
+                    view.get("http_status", 500),
+                )
+            return self._send(
+                {"error": "engine queue wait timed out; update the app for queue status"},
+                503,
+                {"Retry-After": 5},
+            )
+        return self._send(
+            self.engine.jobs.view(job.id),
+            202,
+            {"Location": f"/jobs/{job.id}"},
+        )
+
     def _post(self):
         req, sent = self._read_json()
         if sent:
@@ -470,15 +521,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send({"error": "bad komi"}, 400)
             if handicap not in HANDICAPS:
                 return self._send({"error": "bad handicap"}, 400)
-            game_id = uuid.uuid4().hex[:12]
-            # 先把開局算完再收錄：這段期間別的執行緒看不到這局，不必上鎖搶。
-            with e.inference_slot():
+
+            def new_game():
+                game_id = uuid.uuid4().hex[:12]
+                # 先把開局算完再收錄：這段期間別的執行緒看不到這局。
                 game = Game(e, level, human, komi, handicap)
                 e.apply_handicap(game)
                 to_move = "black" if len(game.history) % 2 == 0 else "white"
                 ai = e.ai_move(game) if to_move != human else None
-            e.register(game_id, game)
-            return self._send(e.snapshot(game, game_id, ai_move=ai))
+                e.register(game_id, game)
+                return e.snapshot(game, game_id, ai_move=ai)
+
+            return self._submit("new", req, new_game)
 
         gid = req.get("game_id", "")
         game = e.get_game(gid)
@@ -490,42 +544,58 @@ class Handler(BaseHTTPRequestHandler):
                 game.resigned_by = game.human_color
                 return self._send(e.snapshot(game, gid))
 
-        # 從這裡開始只鎖這一局：別人的對局照常並行推理（總量由名額把關）。
+        expected_moves = self._expected_moves(req)
+
+        # 從這裡開始只鎖這一局：別人的對局照常由其他 queue worker 推理。
         if self.path == "/move":
-            with e.inference_slot(), game.lock:
-                if game.resigned_by or bool(game.state.terminated | game.state.truncated):
-                    return self._send({"error": "game over"}, 400)
-                try:
-                    action = int(req["action"])
-                except (KeyError, TypeError, ValueError):
-                    return self._send({"error": "bad action"}, 400)
-                # JAX 索引會 clamp/wrap，越界值必須擋在這裡
-                if not 0 <= action <= e.size * e.size:
-                    return self._send({"error": "action out of range"}, 400)
-                e.play(game, action)
-                ai = None
-                if not bool(game.state.terminated | game.state.truncated):
-                    ai = e.ai_move(game)
-                return self._send(e.snapshot(game, gid, ai_move=ai))
+            try:
+                action = int(req["action"])
+            except (KeyError, TypeError, ValueError):
+                return self._send({"error": "bad action"}, 400)
+            # JAX 索引會 clamp/wrap，越界值必須擋在這裡
+            if not 0 <= action <= e.size * e.size:
+                return self._send({"error": "action out of range"}, 400)
+
+            def move():
+                with game.lock:
+                    if expected_moves is not None and len(game.history) != expected_moves:
+                        raise PublicJobError("game state changed; refresh and try again", 409)
+                    if game.resigned_by or bool(game.state.terminated | game.state.truncated):
+                        raise PublicJobError("game over", 400)
+                    try:
+                        e.play(game, action)
+                    except ValueError as err:
+                        raise PublicJobError(str(err), 400) from err
+                    ai = None
+                    if not bool(game.state.terminated | game.state.truncated):
+                        ai = e.ai_move(game)
+                    return e.snapshot(game, gid, ai_move=ai)
+
+            return self._submit("move", req, move)
 
         if self.path == "/undo":
-            with e.inference_slot(), game.lock:
-                # drop plies until it's the human's turn again (min one round);
-                # never into the handicap setup prefix
-                human_is_black = game.human_color == "black"
-                base = game.setup_plies
-                h = game.history[:]
-                if len(h) <= base:
-                    return self._send({"error": "nothing to undo"}, 400)
-                h.pop()
-                while len(h) > base and (len(h) % 2 == 0) != human_is_black:
+            def undo():
+                with game.lock:
+                    if expected_moves is not None and len(game.history) != expected_moves:
+                        raise PublicJobError("game state changed; refresh and try again", 409)
+                    # drop plies until it's the human's turn again (min one round);
+                    # never into the handicap setup prefix
+                    human_is_black = game.human_color == "black"
+                    base = game.setup_plies
+                    h = game.history[:]
+                    if len(h) <= base:
+                        raise PublicJobError("nothing to undo", 400)
                     h.pop()
-                game.resigned_by = None
-                e.replay(game, h)
-                # 執白退到空盤時輪到 AI（黑）先行：補回開局手，否則棋局卡死
-                if (len(game.history) % 2 == 0) != human_is_black:
-                    e.ai_move(game)
-                return self._send(e.snapshot(game, gid))
+                    while len(h) > base and (len(h) % 2 == 0) != human_is_black:
+                        h.pop()
+                    game.resigned_by = None
+                    e.replay(game, h)
+                    # 執白退到空盤時輪到 AI（黑）先行：補回開局手，否則棋局卡死
+                    if (len(game.history) % 2 == 0) != human_is_black:
+                        e.ai_move(game)
+                    return e.snapshot(game, gid)
+
+            return self._submit("undo", req, undo)
 
         return self._send({"error": "not found"}, 404)
 

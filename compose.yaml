@@ -10,6 +10,10 @@ services:
     environment:
       JAX_PLATFORMS: cpu
       XLA_PYTHON_CLIENT_PREALLOCATE: "false"
+      # 固定 worker 數限制真正同時推理量；其餘請求進入可查順位的背景佇列。
+      GOZERO_SEARCH_SLOTS: "${GOZERO_SEARCH_SLOTS:-4}"
+      GOZERO_MAX_QUEUE: "${GOZERO_MAX_QUEUE:-64}"
+      GOZERO_JOB_TTL: "${GOZERO_JOB_TTL:-900}"
     volumes:
       - ./runs/v4/latest.pkl:/models/latest.pkl:ro
       - gozero-server-data:/data

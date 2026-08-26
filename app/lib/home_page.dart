@@ -76,6 +76,12 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  @override
+  void dispose() {
+    api.close();
+    super.dispose();
+  }
+
   Future<void> _ping() async {
     setState(() => engineError = null);
     try {

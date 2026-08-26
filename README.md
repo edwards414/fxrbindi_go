@@ -93,6 +93,38 @@ docker compose up --build
 curl http://127.0.0.1:8765/health
 ```
 
+### 對弈推理佇列
+
+`/new`、`/move`、`/undo` 不會佔住 HTTP 連線等待推理，而是回傳 `202` 與
+`job_id`。App 透過 `GET /jobs/<job_id>` 顯示排隊順位、預估時間並取得結果；
+`GET /queue` 可查看 worker、執行中與排隊數量。
+
+- `GOZERO_SEARCH_SLOTS`：同時執行推理的 worker 數，預設 4。
+- `GOZERO_MAX_QUEUE`：尚未開始的任務上限，預設 64。
+- `GOZERO_JOB_TTL`：完成結果保留秒數，預設 900。
+
+新版 App 會為每個操作傳送 idempotency key，並以 `expected_moves` 保護落子與
+悔棋，網路重送不會讓同一盤棋被重複修改。伺服器內部已保留 premium 加權通道，
+但公開 API 不接受客戶端自報付費身分；必須接上可信的購買憑證驗證後才能啟用。
+沒有 idempotency key 的舊版 App 仍會收到原本的同步 GameState 回應，升級伺服器
+不會直接破壞已安裝的客戶端。
+
+### Server CI/CD
+
+推送影響引擎或排隊 App 協定的 commit 到 `main` 時，
+`.github/workflows/server-ci-deploy.yml` 會執行 Python 測試、Flutter 分析與測試、
+Docker image 建置；全部成功後才以 SSH fast-forward 正式主機並執行
+`scripts/deploy_server.sh`。正式環境需建立以下 GitHub `production` environment secrets：
+
+- `DEPLOY_HOST`
+- `DEPLOY_USER`
+- `DEPLOY_PATH`
+- `DEPLOY_SSH_KEY`
+- `DEPLOY_KNOWN_HOSTS`
+
+部署腳本會忽略格式不屬於 Compose 的本機 `.env`、重建服務，並等待 `/health`
+成功；逾時會輸出容器狀態與引擎 log，讓 workflow 明確失敗。
+
 ## 通知與運維
 
 - 里程碑監控:`nohup python scripts/milestone_watch.py --run-dir runs/v1 >> runs/v1/watch.log 2>&1 &`

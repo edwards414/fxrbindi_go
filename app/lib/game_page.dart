@@ -33,6 +33,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
   bool busy = true; // 等待引擎中
   int? pending; // 樂觀渲染：已送出、等 AI 回手的那手（81 = 虛手）
   String? error;
+  QueueProgress? queueProgress;
   final _finishedRecords = <String, MatchRecord>{};
 
   // 落子進場縮放 / 提子淡出，共用同一個 220ms 進度
@@ -59,6 +60,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    api.close();
     _placeAnim.dispose();
     _thinkAnim.dispose();
     super.dispose();
@@ -99,6 +101,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
     setState(() {
       busy = true;
       error = null;
+      queueProgress = null;
     });
     try {
       final g = await op();
@@ -139,9 +142,17 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
         setState(() {
           busy = false;
           pending = null;
+          queueProgress = null;
         });
       }
     }
+  }
+
+  void _onQueueProgress(QueueProgress progress) {
+    if (!mounted) return;
+    setState(() {
+      queueProgress = progress.status == 'completed' ? null : progress;
+    });
   }
 
   void _newGame() => _run(
@@ -150,6 +161,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
       humanColor: widget.humanColor,
       komi: widget.komi,
       handicap: widget.handicap,
+      onQueueProgress: _onQueueProgress,
     ),
   );
 
@@ -176,7 +188,15 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
     HapticFeedback.lightImpact();
     // 立刻把自己的子畫上（樂觀渲染），AI 回手到達後以伺服器狀態為準
     setState(() => pending = action);
-    _run(() => api.move(game!.gameId, action), animateDiff: true);
+    _run(
+      () => api.move(
+        game!.gameId,
+        action,
+        expectedMoves: game!.moves,
+        onQueueProgress: _onQueueProgress,
+      ),
+      animateDiff: true,
+    );
   }
 
   /// 等待回應期間，畫面上顯示的手番（送出落子後立即輪到 AI）
@@ -294,15 +314,16 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
         ],
       ),
       body: g == null
-          ? Center(
-              child: error != null
-                  ? _errorBox()
-                  : const CircularProgressIndicator(color: Sumi.seal),
-            )
+          ? Center(child: error != null ? _errorBox() : _initialLoading())
           : Column(
               children: [
                 _playerBar(g),
                 _winratePanel(g),
+                if (queueProgress?.status == 'queued')
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: _queueBanner(),
+                  ),
                 const Spacer(),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -447,6 +468,56 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
     ),
     child: Text(error!, style: const TextStyle(color: Sumi.danger)),
   );
+
+  Widget _initialLoading() => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      const CircularProgressIndicator(color: Sumi.seal),
+      const SizedBox(height: 16),
+      Text(
+        queueProgress == null ? '正在連接引擎…' : _queueText(queueProgress!),
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: Sumi.paperDim),
+      ),
+    ],
+  );
+
+  Widget _queueBanner() => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: Sumi.seal.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Sumi.seal.withValues(alpha: 0.35)),
+    ),
+    child: Row(
+      children: [
+        const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Sumi.seal),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            _queueText(queueProgress!),
+            style: const TextStyle(color: Sumi.paperDim, fontSize: 13),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  String _queueText(QueueProgress progress) {
+    if (progress.status == 'running') return '已輪到你，玄石正在思考…';
+    final position = progress.position > 0
+        ? '目前第 ${progress.position} 位'
+        : '等待中';
+    final estimate = progress.estimatedWaitSeconds > 0
+        ? '，約 ${progress.estimatedWaitSeconds} 秒'
+        : '';
+    return '伺服器忙碌，已為你保留位置 · $position$estimate';
+  }
 
   Widget _playerBar(GameState g) {
     Widget side(String color) {
@@ -608,7 +679,13 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
               !busy &&
                   g.moves > (g.humanColor == 'white' ? 1 : 0) &&
                   !g.gameOver
-              ? () => _run(() => api.undo(g.gameId))
+              ? () => _run(
+                  () => api.undo(
+                    g.gameId,
+                    expectedMoves: g.moves,
+                    onQueueProgress: _onQueueProgress,
+                  ),
+                )
               : null,
           child: const Text('悔棋'),
         ),
