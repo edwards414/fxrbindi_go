@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>destination</key>
+	<string>export</string>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>dev.gozero.gozeroGo</key>
+		<string>AppStore dev.gozero.gozeroGo</string>
+	</dict>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>teamID</key>
+	<string>424PMQV2V7</string>
+</dict>
+</plist>

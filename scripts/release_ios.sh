@@ -59,6 +59,8 @@ echo "=== $(date '+%F %T') build $BUILD_NUM 開始 ===" >> "$LOG"
 WORK=/private/tmp/xuanshi-build
 mkdir -p "$WORK"
 rsync -a --delete --exclude build --exclude .dart_tool --exclude ephemeral \
+  --exclude previews --exclude screenshots \
+  --exclude macos --exclude windows --exclude linux --exclude android --exclude web \
   "$REPO/app/" "$WORK/app/" >> "$LOG" 2>&1 || fail "rsync 到建置目錄"
 
 cd "$WORK/app"

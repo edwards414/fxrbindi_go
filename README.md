@@ -125,6 +125,26 @@ Docker image 建置；全部成功後才以 SSH fast-forward 正式主機並執�
 部署腳本會忽略格式不屬於 Compose 的本機 `.env`、重建服務，並等待 `/health`
 成功；逾時會輸出容器狀態與引擎 log，讓 workflow 明確失敗。
 
+### iOS TestFlight CI/CD
+
+推送 `app/**` 到 `main` 時，`.github/workflows/ios-testflight.yml` 會先執行
+Flutter analyze/test，再於 GitHub macOS runner 匯入專用 App Store 簽章憑證、
+下載 `IOS_APP_STORE` provisioning profile、archive、上傳 TestFlight，並在 Apple
+處理完成後加入 `Internal Testers`。每次 workflow run/attempt 都有唯一的
+`CFBundleVersion`，失敗重跑不會撞到已上傳的 build number。外部測試仍由
+App Store Connect 人工送 Beta Review，不會因每次 commit 自動公開。
+
+GitHub `testflight` environment 需要兩個 variables：
+
+- `APPSTORE_ISSUER_ID`
+- `APPSTORE_API_KEY_ID`
+
+以及三個 secrets：
+
+- `APPSTORE_API_PRIVATE_KEY`
+- `APPSTORE_CERTIFICATES_FILE_BASE64`
+- `APPSTORE_CERTIFICATES_PASSWORD`
+
 ## 通知與運維
 
 - 里程碑監控:`nohup python scripts/milestone_watch.py --run-dir runs/v1 >> runs/v1/watch.log 2>&1 &`
