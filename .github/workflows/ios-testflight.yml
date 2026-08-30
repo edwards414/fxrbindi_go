@@ -113,6 +113,11 @@ jobs:
           cd ios
           pod install
 
+      - name: Configure Runner distribution signing
+        run: >-
+          ruby ../scripts/configure_ios_ci_signing.rb
+          ios/Runner.xcodeproj/project.pbxproj "$PROFILE_NAME"
+
       - name: Archive signed iOS app
         run: |
           set -o pipefail
