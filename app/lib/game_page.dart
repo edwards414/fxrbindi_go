@@ -292,18 +292,9 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
         actions: [
           // 任何請求進行中（悔棋/認輸/新局）都以此提示忙碌
           if (busy)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: Center(
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Sumi.paperDim,
-                  ),
-                ),
-              ),
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(child: _busyIndicator()),
             )
           else
             IconButton(
@@ -319,11 +310,6 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
               children: [
                 _playerBar(g),
                 _winratePanel(g),
-                if (queueProgress?.status == 'queued')
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: _queueBanner(),
-                  ),
                 const Spacer(),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -474,50 +460,31 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
     children: [
       const CircularProgressIndicator(color: Sumi.seal),
       const SizedBox(height: 16),
-      Text(
-        queueProgress == null ? '正在連接引擎…' : _queueText(queueProgress!),
+      const Text(
+        '正在連接引擎…',
         textAlign: TextAlign.center,
-        style: const TextStyle(color: Sumi.paperDim),
+        style: TextStyle(color: Sumi.paperDim),
       ),
     ],
   );
 
-  Widget _queueBanner() => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-    decoration: BoxDecoration(
-      color: Sumi.seal.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: Sumi.seal.withValues(alpha: 0.35)),
-    ),
-    child: Row(
-      children: [
-        const SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(strokeWidth: 2, color: Sumi.seal),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            _queueText(queueProgress!),
-            style: const TextStyle(color: Sumi.paperDim, fontSize: 13),
+  Widget _busyIndicator() => queueProgress?.status == 'queued'
+      ? Semantics(
+          label: '排隊中',
+          child: const Icon(
+            Icons.hourglass_top_rounded,
+            size: 18,
+            color: Sumi.paperDim,
           ),
-        ),
-      ],
-    ),
-  );
-
-  String _queueText(QueueProgress progress) {
-    if (progress.status == 'running') return '已輪到你，玄石正在思考…';
-    final position = progress.position > 0
-        ? '目前第 ${progress.position} 位'
-        : '等待中';
-    final estimate = progress.estimatedWaitSeconds > 0
-        ? '，約 ${progress.estimatedWaitSeconds} 秒'
-        : '';
-    return '伺服器忙碌，已為你保留位置 · $position$estimate';
-  }
+        )
+      : const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Sumi.paperDim,
+          ),
+        );
 
   Widget _playerBar(GameState g) {
     Widget side(String color) {
