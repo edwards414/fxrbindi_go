@@ -130,7 +130,8 @@ Docker image 建置；全部成功後才以 SSH fast-forward 正式主機並執�
 - `DEPLOY_KNOWN_HOSTS`
 
 部署腳本會忽略格式不屬於 Compose 的本機 `.env`、重建服務，並等待 `/health`
-成功；逾時會輸出容器狀態與引擎 log，讓 workflow 明確失敗。
+成功。19 路模型首次 CPU JIT 最多允許 15 分鐘；逾時會輸出容器狀態與引擎
+log，讓 workflow 明確失敗。
 
 ### iOS TestFlight CI/CD
 

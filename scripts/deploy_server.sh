@@ -3,7 +3,9 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
-deploy_timeout="${GOZERO_DEPLOY_TIMEOUT:-300}"
+# 19x19 的 128-simulation 搜尋在 CPU 上首次 JIT 會比 9x9 久；只影響
+# 新 image 的第一次啟動，健康檢查一成功仍會立即結束。
+deploy_timeout="${GOZERO_DEPLOY_TIMEOUT:-900}"
 compose=(docker compose --env-file /dev/null)
 
 cd "$repo_dir"
