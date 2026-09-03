@@ -51,7 +51,10 @@ def _verify_outer_checksum(
         fields = checksum_path.read_text().strip().split()
     except OSError as exc:
         raise ValueError(f"cannot read bundle checksum {checksum_path}: {exc}") from exc
-    if len(fields) != 2 or fields[1].lstrip("*") != bundle_path.name:
+    recorded_name = (
+        pathlib.PurePosixPath(fields[1].lstrip("*")).name if len(fields) == 2 else ""
+    )
+    if len(fields) != 2 or recorded_name != bundle_path.name:
         raise ValueError(f"invalid bundle checksum record in {checksum_path}")
     actual = _sha256(bundle_path)
     if fields[0].lower() != actual:

@@ -104,7 +104,9 @@ class VerifyH100ReleaseTest(unittest.TestCase):
                 archive.add(extra, arcname=extra.name)
         digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
         checksum_path = output_root / "gozero19-v5-release.tar.gz.sha256"
-        checksum_path.write_text(f"{digest}  {bundle_path.name}\n")
+        checksum_path.write_text(
+            f"{digest}  runs/v5_19x19/{bundle_path.name}\n"
+        )
         return bundle_path, checksum_path
 
     def test_accepts_complete_consistent_bundle(self):
@@ -175,6 +177,22 @@ class VerifyH100ReleaseTest(unittest.TestCase):
             extra.write_text("not part of the release\n")
             bundle_path, checksum_path = self.make_archive(source, root, extra)
             with self.assertRaisesRegex(ValueError, "unexpected release bundle members"):
+                integrate_release(
+                    bundle_path,
+                    checksum_path,
+                    root / "destination",
+                    expected_iteration=3,
+                )
+
+    def test_rejects_checksum_record_for_different_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "source"
+            self.make_bundle(source)
+            bundle_path, checksum_path = self.make_archive(source, root)
+            digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+            checksum_path.write_text(f"{digest}  runs/v5_19x19/wrong.tar.gz\n")
+            with self.assertRaisesRegex(ValueError, "invalid bundle checksum"):
                 integrate_release(
                     bundle_path,
                     checksum_path,
