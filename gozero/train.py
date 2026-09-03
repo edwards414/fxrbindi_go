@@ -23,6 +23,8 @@ import pickle
 import time
 from typing import NamedTuple
 
+from flax import traverse_util
+from flax.core import freeze, unfreeze
 import jax
 import jax.numpy as jnp
 import mctx
@@ -43,10 +45,15 @@ def parse_args():
     p.add_argument("--resume", default=None, help="checkpoint .pkl to resume from")
     p.add_argument("--channels", type=int, default=128)
     p.add_argument("--blocks", type=int, default=8)
+    p.add_argument("--compute-dtype", choices=("float32", "bfloat16"), default="float32",
+                   help="network compute precision; parameters remain float32")
+    p.add_argument("--init-from", default=None,
+                   help="checkpoint whose shape-compatible weights initialize a new run")
     p.add_argument("--selfplay-batch", type=int, default=1024, help="games per device per iteration")
     p.add_argument("--sims", type=int, default=32, help="MCTS simulations per move")
     p.add_argument("--max-considered", type=int, default=16, help="Gumbel max considered actions at root")
-    p.add_argument("--max-steps", type=int, default=162, help="self-play scan length; 162 = pgx go_9x9 hard cap, so every game finishes in-window")
+    p.add_argument("--max-steps", type=int, default=0,
+                   help="self-play scan length; 0 uses the pgx Go cap (2 * board area)")
     p.add_argument("--pass-guard-ply", type=int, default=40,
                    help="selfplay-only: forbid pass at the search root before this ply "
                         "(unless no other legal move). Prevents the early pass-collapse "
@@ -303,24 +310,74 @@ def save_ckpt(path, params, opt_state, it, args):
     os.replace(tmp, path)
 
 
+def initialize_compatible_params(params, checkpoint_path):
+    """Copy all checkpoint leaves whose names and shapes fit the new model.
+
+    A 9x9 checkpoint can therefore seed a 19x19 model's convolutional trunk,
+    normalization layers and board-independent head layers.  The board-sized
+    policy/value dense matrices remain freshly initialized.
+    """
+    with open(checkpoint_path, "rb") as f:
+        source = pickle.load(f)["params"]
+    target_flat = traverse_util.flatten_dict(unfreeze(params))
+    source_flat = traverse_util.flatten_dict(unfreeze(source))
+    copied = []
+    skipped = []
+    for path, target in target_flat.items():
+        candidate = source_flat.get(path)
+        if candidate is not None and candidate.shape == target.shape:
+            target_flat[path] = jnp.asarray(candidate, dtype=target.dtype)
+            copied.append("/".join(path))
+        else:
+            skipped.append("/".join(path))
+    return freeze(traverse_util.unflatten_dict(target_flat)), copied, skipped
+
+
 def main():
     args = parse_args()
+    if args.resume and args.init_from:
+        raise SystemExit("--resume and --init-from are mutually exclusive")
+
     os.makedirs(args.run_dir, exist_ok=True)
-    with open(os.path.join(args.run_dir, "config.json"), "w") as f:
-        json.dump(vars(args), f, indent=2)
 
     devices = jax.local_devices()
     num_devices = len(devices)
     print(f"devices: {devices}")
 
     env = pgx.make(args.env_id)
-    net = AZNet(num_actions=env.num_actions, channels=args.channels, num_blocks=args.blocks)
+    board_size = int(env.observation_shape[0])
+    if args.max_steps == 0:
+        args.max_steps = 2 * board_size * board_size
+    if args.max_steps < 2 * board_size * board_size:
+        print(
+            f"warning: max_steps={args.max_steps} is below the pgx Go cap "
+            f"{2 * board_size * board_size}; unfinished games will be masked",
+            flush=True,
+        )
+    with open(os.path.join(args.run_dir, "config.json"), "w") as f:
+        json.dump(vars(args), f, indent=2)
+
+    net = AZNet(
+        num_actions=env.num_actions,
+        channels=args.channels,
+        num_blocks=args.blocks,
+        compute_dtype=args.compute_dtype,
+    )
 
     rng = jax.random.PRNGKey(args.seed)
     rng, k_init = jax.random.split(rng)
     dummy_obs = jax.vmap(env.init)(jax.random.split(k_init, 2)).observation
     variables = net.init(k_init, dummy_obs)
     params = variables["params"]
+
+    if args.init_from:
+        params, copied, skipped = initialize_compatible_params(params, args.init_from)
+        print(
+            f"initialized {len(copied)} parameter leaves from {args.init_from}; "
+            f"kept {len(skipped)} newly initialized leaves",
+            flush=True,
+        )
+        print(f"new leaves: {', '.join(skipped)}", flush=True)
 
     selfplay, compute_targets, train_epoch, eval_games, optimizer = make_fns(
         env, net, args, num_devices

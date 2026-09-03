@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'main.dart';
 
-/// 榧木棋盤 + 雲子質感棋子。板面含座標 (A–J / 1–9)、星位、最後一手標記。
+/// 榧木棋盤 + 雲子質感棋子。板面含 GTP 座標、星位、最後一手標記。
 class BoardPainter extends CustomPainter {
   final int size; // 路數
   final List<int> board; // 0 空 1 黑 2 白

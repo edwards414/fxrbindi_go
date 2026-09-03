@@ -101,7 +101,7 @@ class Engine:
         self.forward = jax.jit(lambda obs: self.net.apply({"params": self.params}, obs))
         # 貼目烙在 env 的 JIT 常數裡：每個 komi 要自己的 env/init/step 與 search fn，
         # 非預設貼目第一手會多等一次編譯，之後走快取
-        # LRU：貼目可由使用者自訂（-81~81 的半整數），不設上限的話
+        # LRU：貼目可由使用者自訂（不超過整盤交叉點數的半整數），不設上限的話
         # 每個新值都會永久佔住一份編譯產物。DEFAULT_KOMI 永不淘汰。
         self._envs: OrderedDict[float, object] = OrderedDict({DEFAULT_KOMI: self.env})
         self._env_fns: OrderedDict[float, tuple] = OrderedDict()
@@ -322,13 +322,19 @@ class Engine:
     def save_games(self, path: str):
         with self.games_lock:
             games = list(self.games.items())
-        data = {}
+        games_data = {}
         for gid, g in games:
             with g.lock:  # 避免讀到寫到一半的 history
-                data[gid] = {"level": g.level, "human_color": g.human_color,
-                             "history": list(g.history), "resigned_by": g.resigned_by,
-                             "komi": g.komi, "handicap": g.handicap,
-                             "touched": g.touched}
+                games_data[gid] = {
+                    "level": g.level,
+                    "human_color": g.human_color,
+                    "history": list(g.history),
+                    "resigned_by": g.resigned_by,
+                    "komi": g.komi,
+                    "handicap": g.handicap,
+                    "touched": g.touched,
+                }
+        data = {"version": 2, "board_size": self.size, "games": games_data}
         with open(path, "w") as f:
             json.dump(data, f)
 
@@ -338,7 +344,23 @@ class Engine:
                 data = json.load(f)
         except (OSError, json.JSONDecodeError):
             return
-        for gid, d in data.items():
+        if "games" in data:
+            if data.get("board_size") != self.size:
+                print(
+                    f"ignoring saved {data.get('board_size')}x{data.get('board_size')} "
+                    f"games for {self.size}x{self.size} engine",
+                    flush=True,
+                )
+                return
+            saved_games = data["games"]
+        else:
+            # v1 state files predate the board_size field and were produced by
+            # the original 9x9-only server.  They are safe to load only into 9x9.
+            if self.size != 9:
+                print("ignoring legacy 9x9 games for non-9x9 engine", flush=True)
+                return
+            saved_games = data
+        for gid, d in saved_games.items():
             game = Game(self, d["level"], d["human_color"],
                         d.get("komi", DEFAULT_KOMI), d.get("handicap", 0))
             try:
@@ -516,8 +538,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send({"error": "bad komi/handicap"}, 400)
             if level not in LEVELS or human not in ("black", "white"):
                 return self._send({"error": "bad level/color"}, 400)
-            # 半整數避免 JIT 快取被連續值撐爆；範圍蓋住 9 路全盤
-            if komi != komi or not (komi * 2).is_integer() or not -81 <= komi <= 81:
+            # 半整數避免 JIT 快取被連續值撐爆；範圍隨棋盤面積調整。
+            max_komi = e.size * e.size
+            if (komi != komi or not (komi * 2).is_integer()
+                    or not -max_komi <= komi <= max_komi):
                 return self._send({"error": "bad komi"}, 400)
             if handicap not in HANDICAPS:
                 return self._send({"error": "bad handicap"}, 400)

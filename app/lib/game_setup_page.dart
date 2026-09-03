@@ -73,8 +73,11 @@ class _GameSetupPageState extends State<GameSetupPage> {
   double? _resolveKomi() {
     if (!customKomi) return komi;
     final v = double.tryParse(komiCtrl.text.trim());
-    if (v == null || (v * 2) != (v * 2).roundToDouble() || v < -81 || v > 81) {
-      setState(() => komiError = '請輸入 -81 到 81 之間、以 0.5 為單位的貼目');
+    if (v == null ||
+        (v * 2) != (v * 2).roundToDouble() ||
+        v < -361 ||
+        v > 361) {
+      setState(() => komiError = '請輸入 -361 到 361 之間、以 0.5 為單位的貼目');
       return null;
     }
     return v;
@@ -197,11 +200,17 @@ class _GameSetupPageState extends State<GameSetupPage> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _chip('無', handicap == 0,
-                            () => setState(() => handicap = 0)),
+                        _chip(
+                          '無',
+                          handicap == 0,
+                          () => setState(() => handicap = 0),
+                        ),
                         for (final n in const [2, 3, 4])
-                          _chip('讓 $n 子', handicap == n,
-                              () => setState(() => handicap = n)),
+                          _chip(
+                            '讓 $n 子',
+                            handicap == n,
+                            () => setState(() => handicap = n),
+                          ),
                       ],
                     ),
                     if (handicap > 0)

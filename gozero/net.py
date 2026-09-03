@@ -10,7 +10,8 @@ Differences from the original AlphaGo Zero (2017) architecture:
 * GroupNorm instead of BatchNorm: deterministic at any batch size (batch=1
   GTP play behaves identically to training) and requires no cross-device
   statistics synchronisation under pmap.
-* The value head keeps AlphaGo Zero's tanh scalar, sized down for 9x9.
+* The value head keeps AlphaGo Zero's tanh scalar.  Policy/value dense layers
+  derive their shapes from the board, so the same trunk supports 9x9 and 19x19.
 """
 from __future__ import annotations
 
@@ -22,28 +23,40 @@ class GlobalPoolBias(nn.Module):
     """KataGo-style global pooling -> channel bias."""
 
     channels: int
+    compute_dtype: str = "float32"
 
     @nn.compact
     def __call__(self, x):
+        dtype = jnp.bfloat16 if self.compute_dtype == "bfloat16" else jnp.float32
         # x: (B, H, W, C)
         g = jnp.concatenate([x.mean(axis=(1, 2)), x.max(axis=(1, 2))], axis=-1)
-        g = nn.Dense(self.channels)(nn.relu(nn.Dense(self.channels)(g)))
+        g = nn.Dense(self.channels, dtype=dtype, param_dtype=jnp.float32)(
+            nn.relu(nn.Dense(self.channels, dtype=dtype, param_dtype=jnp.float32)(g))
+        )
         return x + g[:, None, None, :]
 
 
 class ResBlock(nn.Module):
     channels: int
     use_gpool: bool
+    compute_dtype: str = "float32"
 
     @nn.compact
     def __call__(self, x):
-        h = nn.Conv(self.channels, (3, 3), use_bias=False)(x)
-        h = nn.GroupNorm(num_groups=8)(h)
+        dtype = jnp.bfloat16 if self.compute_dtype == "bfloat16" else jnp.float32
+        h = nn.Conv(
+            self.channels, (3, 3), use_bias=False,
+            dtype=dtype, param_dtype=jnp.float32,
+        )(x)
+        h = nn.GroupNorm(num_groups=8, dtype=dtype, param_dtype=jnp.float32)(h)
         h = nn.relu(h)
-        h = nn.Conv(self.channels, (3, 3), use_bias=False)(h)
-        h = nn.GroupNorm(num_groups=8)(h)
+        h = nn.Conv(
+            self.channels, (3, 3), use_bias=False,
+            dtype=dtype, param_dtype=jnp.float32,
+        )(h)
+        h = nn.GroupNorm(num_groups=8, dtype=dtype, param_dtype=jnp.float32)(h)
         if self.use_gpool:
-            h = GlobalPoolBias(self.channels)(h)
+            h = GlobalPoolBias(self.channels, self.compute_dtype)(h)
         return nn.relu(x + h)
 
 
@@ -57,28 +70,47 @@ class AZNet(nn.Module):
     num_actions: int
     channels: int = 128
     num_blocks: int = 8
+    compute_dtype: str = "float32"
 
     @nn.compact
     def __call__(self, x):
-        x = x.astype(jnp.float32)
-        h = nn.Conv(self.channels, (3, 3), use_bias=False)(x)
-        h = nn.GroupNorm(num_groups=8)(h)
+        dtype = jnp.bfloat16 if self.compute_dtype == "bfloat16" else jnp.float32
+        x = x.astype(dtype)
+        h = nn.Conv(
+            self.channels, (3, 3), use_bias=False,
+            dtype=dtype, param_dtype=jnp.float32,
+        )(x)
+        h = nn.GroupNorm(num_groups=8, dtype=dtype, param_dtype=jnp.float32)(h)
         h = nn.relu(h)
         for i in range(self.num_blocks):
-            h = ResBlock(self.channels, use_gpool=(i % 2 == 1))(h)
+            h = ResBlock(
+                self.channels,
+                use_gpool=(i % 2 == 1),
+                compute_dtype=self.compute_dtype,
+            )(h)
 
         # Policy head
-        p = nn.Conv(4, (1, 1), use_bias=False)(h)
-        p = nn.GroupNorm(num_groups=1)(p)
+        p = nn.Conv(
+            4, (1, 1), use_bias=False,
+            dtype=dtype, param_dtype=jnp.float32,
+        )(h)
+        p = nn.GroupNorm(num_groups=1, dtype=dtype, param_dtype=jnp.float32)(p)
         p = nn.relu(p)
         p = p.reshape((p.shape[0], -1))
-        logits = nn.Dense(self.num_actions)(p)
+        logits = nn.Dense(
+            self.num_actions, dtype=dtype, param_dtype=jnp.float32,
+        )(p)
 
         # Value head
-        v = nn.Conv(2, (1, 1), use_bias=False)(h)
-        v = nn.GroupNorm(num_groups=1)(v)
+        v = nn.Conv(
+            2, (1, 1), use_bias=False,
+            dtype=dtype, param_dtype=jnp.float32,
+        )(h)
+        v = nn.GroupNorm(num_groups=1, dtype=dtype, param_dtype=jnp.float32)(v)
         v = nn.relu(v)
         v = v.reshape((v.shape[0], -1))
-        v = nn.relu(nn.Dense(128)(v))
-        v = nn.tanh(nn.Dense(1)(v))
-        return logits, v.squeeze(-1)
+        v = nn.relu(nn.Dense(128, dtype=dtype, param_dtype=jnp.float32)(v))
+        v = nn.tanh(nn.Dense(1, dtype=dtype, param_dtype=jnp.float32)(v))
+        # MCTS and the losses are numerically safer in float32; the expensive
+        # convolution/dense kernels above still use H100 bfloat16 tensor cores.
+        return logits.astype(jnp.float32), v.squeeze(-1).astype(jnp.float32)

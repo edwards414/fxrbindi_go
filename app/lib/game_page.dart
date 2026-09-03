@@ -31,7 +31,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
   final api = EngineApi();
   GameState? game;
   bool busy = true; // 等待引擎中
-  int? pending; // 樂觀渲染：已送出、等 AI 回手的那手（81 = 虛手）
+  int? pending; // 樂觀渲染：已送出、等 AI 回手的那手（size² = 虛手）
   String? error;
   QueueProgress? queueProgress;
   final _finishedRecords = <String, MatchRecord>{};
@@ -121,7 +121,17 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
       if (widget.autoDemo && g.moves < 6 && !g.gameOver) {
         Future.delayed(const Duration(milliseconds: 800), () {
           if (!mounted || !humanTurn) return;
-          final prefs = [30, 50, 24, 56, 40];
+          final n = game!.size;
+          final edge = n >= 13 ? 3 : 2;
+          final far = n - 1 - edge;
+          final center = n ~/ 2;
+          final prefs = [
+            edge * n + edge,
+            far * n + far,
+            edge * n + far,
+            far * n + edge,
+            center * n + center,
+          ];
           final a = prefs.firstWhere(
             (i) => game!.legal[i] == 1,
             orElse: () => game!.legal.indexOf(1),
@@ -337,7 +347,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
                                 size: Size.square(box.maxWidth),
                               ),
                             ),
-                            // VoiceOver：81 個交叉點各自可讀（座標＋黑/白/空），
+                            // VoiceOver：每個交叉點各自可讀（座標＋黑/白/空），
                             // 合法且輪到你時可 double-tap 直接下子。視覺上完全不可見。
                             ..._boardSemantics(g, box.maxWidth),
                           ],
@@ -359,7 +369,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
     );
   }
 
-  /// 含樂觀渲染：pending 的那手先畫上（虛手 81 不畫子），
+  /// 含樂觀渲染：pending 的那手先畫上（虛手 size² 不畫子），
   /// 並就地結算提子，避免等待期間短暫顯示無氣的死子。
   BoardPainter _boardPainter(GameState g) {
     var board = g.board;
