@@ -177,10 +177,12 @@ fi
   scripts/aggregate_eval_results.py
 
 (cd "$run_dir" && sha256sum latest.pkl > latest.pkl.sha256)
+marker_tmp="$run_dir/.release-ready.txt.tmp"
 printf '%s\n' \
   "release ready at $(date -u +%FT%TZ)" \
   "iteration=1000" \
   "random_win=$random_win" \
   "gnugo_win=$gnugo_win" \
   "latency=$latency" \
-  > "$run_dir/release-ready.txt"
+  > "$marker_tmp"
+mv "$marker_tmp" "$run_dir/release-ready.txt"
