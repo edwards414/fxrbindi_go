@@ -32,6 +32,7 @@ import numpy as np
 import optax
 import pgx
 
+from gozero.anchor_resume import load_resume_anchor
 from gozero.net import AZNet
 
 
@@ -293,7 +294,7 @@ def make_fns(env, net, args, num_devices):
 # ---------------------------------------------------------------------------
 # Checkpoint helpers
 # ---------------------------------------------------------------------------
-def save_ckpt(path, params, opt_state, it, args):
+def save_ckpt(path, params, opt_state, it, args, anchor_iteration):
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         pickle.dump(
@@ -303,6 +304,7 @@ def save_ckpt(path, params, opt_state, it, args):
                     jax.tree_util.tree_map(lambda x: x[0], opt_state)
                 ),
                 "iteration": it,
+                "anchor_iteration": anchor_iteration,
                 "config": vars(args),
             },
             f,
@@ -385,9 +387,11 @@ def main():
     opt_state = optimizer.init(params)
 
     start_iter = 0
+    resume_checkpoint = None
     if args.resume:
         with open(args.resume, "rb") as f:
             ck = pickle.load(f)
+        resume_checkpoint = ck
         params = ck["params"]
         opt_state = ck["opt_state"]
         start_iter = ck["iteration"]
@@ -396,12 +400,28 @@ def main():
     n_params = sum(x.size for x in jax.tree_util.tree_leaves(params))
     print(f"model parameters: {n_params/1e6:.2f}M")
 
+    anchor_params = params
+    anchor_iter = start_iter
+    if resume_checkpoint is not None:
+        try:
+            anchor_params, anchor_iter = load_resume_anchor(
+                resume_checkpoint, args.run_dir, start_iter
+            )
+            print(f"restored evaluation anchor at iteration {anchor_iter}", flush=True)
+        except (OSError, ValueError, KeyError, EOFError, pickle.UnpicklingError) as exc:
+            print(
+                f"warning: could not restore evaluation anchor ({exc}); "
+                f"using resumed iteration {start_iter}",
+                flush=True,
+            )
+            anchor_params = params
+            anchor_iter = start_iter
+
     params = jax.device_put_replicated(params, devices)
     opt_state = jax.device_put_replicated(opt_state, devices)
 
     # Frozen snapshot of an earlier self for Elo-style progress tracking.
-    anchor_params = jax.tree_util.tree_map(lambda x: x, params)
-    anchor_iter = start_iter
+    anchor_params = jax.device_put_replicated(anchor_params, devices)
 
     metrics_path = os.path.join(args.run_dir, "metrics.jsonl")
     frames_per_iter = num_devices * args.max_steps * args.selfplay_batch
@@ -462,9 +482,16 @@ def main():
         if (it + 1) % args.save_every == 0 or it + 1 == args.iters:
             save_ckpt(
                 os.path.join(args.run_dir, f"ckpt_{it+1:06d}.pkl"),
-                params, opt_state, it + 1, args,
+                params, opt_state, it + 1, args, anchor_iter,
             )
-        save_ckpt(os.path.join(args.run_dir, "latest.pkl"), params, opt_state, it + 1, args)
+        save_ckpt(
+            os.path.join(args.run_dir, "latest.pkl"),
+            params,
+            opt_state,
+            it + 1,
+            args,
+            anchor_iter,
+        )
 
         with open(metrics_path, "a") as f:
             f.write(json.dumps(rec) + "\n")
