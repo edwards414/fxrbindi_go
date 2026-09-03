@@ -13,6 +13,8 @@ on:
       - "Dockerfile"
       - "requirements-server.txt"
       - "compose.yaml"
+      - "runs/v5_19x19/latest.pkl"
+      - "runs/v5_19x19/latest.pkl.sha256"
       - "deploy/**"
       - "scripts/deploy_server.sh"
       - ".github/workflows/server-ci-deploy.yml"
