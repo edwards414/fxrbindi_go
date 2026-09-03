@@ -18,6 +18,29 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "app" / "assets" / "model_stats.json"
 
 
+def device_summary(rows, config):
+    max_steps = int(config["max_steps"])
+    selfplay_batch = int(config["selfplay_batch"])
+    frames_per_device = max_steps * selfplay_batch
+    device_counts = []
+    for row in rows:
+        devices, remainder = divmod(int(row["frames"]), frames_per_device)
+        if devices < 1 or remainder:
+            raise ValueError(
+                f"iteration {row.get('iter')} frames={row.get('frames')} cannot be "
+                f"produced by max_steps={max_steps}, selfplay_batch={selfplay_batch}"
+            )
+        device_counts.append(devices)
+    low, high = min(device_counts), max(device_counts)
+    hardware = str(low) if low == high else f"{low}–{high}"
+    return {
+        "hardware": hardware,
+        "latest_devices": device_counts[-1],
+        "latest_games": device_counts[-1] * selfplay_batch,
+        "latest_frames": int(rows[-1]["frames"]),
+    }
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--channels", type=int, default=192)
@@ -40,6 +63,12 @@ def main():
             f"metrics must end at iteration {args.iter}; got "
             f"{rows[-1]['iter'] if rows else 'no rows'}"
         )
+    config_path = metrics_path.parent / "config.json"
+    config = json.loads(config_path.read_text())
+    try:
+        devices = device_summary(rows, config)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SystemExit(f"cannot derive actual H100 usage: {exc}") from exc
 
     step = max(1, len(rows) // 120)
     loss_curve = [
@@ -61,7 +90,6 @@ def main():
         if key not in lat:
             raise SystemExit(f"latency is missing sims={key}")
 
-    frames = rows[-1]["frames"]
     tail = rows[-min(100, len(rows)):]
     iter_s = sum(r["time"] for r in tail) / len(tail)
     stats = {
@@ -74,8 +102,16 @@ def main():
         ],
         "training": [
             ["演算法", "Gumbel-AlphaZero — 根節點 Gumbel 選擇，32 次模擬、至多 16 候選"],
-            ["硬體", "7 × NVIDIA H100 80GB（JAX pmap、BF16 Tensor Core）"],
-            ["自對弈", f"每迭代 448 局並行，{frames:,} 個局面"],
+            [
+                "硬體",
+                f"{devices['hardware']} × NVIDIA H100 80GB"
+                "（依實際可用卡動態調整；JAX pmap、BF16 Tensor Core）",
+            ],
+            [
+                "自對弈",
+                f"最後一輪每迭代 {devices['latest_games']:,} 局並行，"
+                f"{devices['latest_frames']:,} 個局面",
+            ],
             ["優化器", "AdamW + warmup / cosine（lr 1e-3, wd 1e-4）"],
             ["進度", f"v5 已練 {args.iter:,} 迭代，近 100 輪平均 {iter_s:.1f} 秒／輪"],
             ["規則", "19 路 Tromp-Taylor（中國規則計分）、貼目 7.5、禁全同型"],
