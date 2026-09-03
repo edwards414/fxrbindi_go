@@ -6,17 +6,17 @@ import 'package:http/testing.dart';
 
 import 'package:gozero_go/api.dart';
 
-Map<String, dynamic> gameJson({int moves = 2}) => {
+Map<String, dynamic> gameJson({int moves = 2, int size = 19}) => {
   'game_id': 'game123',
-  'board': List<int>.filled(81, 0),
-  'size': 9,
+  'board': List<int>.filled(size * size, 0),
+  'size': size,
   'to_move': 'black',
   'human_color': 'black',
   'moves': moves,
   'history': List<int>.generate(moves, (i) => i),
   'last_move': moves == 0 ? null : moves - 1,
   'ai_move': moves == 0 ? null : moves - 1,
-  'legal': List<int>.filled(82, 1),
+  'legal': List<int>.filled(size * size + 1, 1),
   'black_winrate': 0.5,
   'winrates': List<double>.filled(moves + 1, 0.5),
   'captures': {'black': 0, 'white': 0},
@@ -70,6 +70,9 @@ void main() {
     );
 
     expect(game.gameId, 'game123');
+    expect(game.size, 19);
+    expect(game.board, hasLength(361));
+    expect(game.legal, hasLength(362));
     expect(pollCount, 1);
     expect(progress.first.status, 'queued');
     expect(progress.first.position, 2);
