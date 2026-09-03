@@ -61,11 +61,53 @@ env CUDA_VISIBLE_DEVICES="$gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
   --ckpt "$run_dir/latest.pkl" --vs-random --games 256 --sims 32 \
   > "$run_dir/eval-random.txt" 2>&1
 
-env CUDA_VISIBLE_DEVICES="$gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
-  "$python_bin" -m gozero.evaluate \
-  --ckpt "$run_dir/latest.pkl" --games 20 --sims 128 --max-plies 722 \
-  --vs-gtp "/usr/games/gnugo --mode gtp --boardsize 19 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead" \
-  > "$run_dir/eval-gnugo.txt" 2>&1
+# GNU Go mode is sequential within one process. Split the 20 games into
+# black/white pairs across every H100 that completed training, preserving an
+# exactly balanced colour assignment while cutting the wall-clock gate time.
+IFS=',' read -r -a eval_gpus <<< "$train_gpus"
+if (( ${#eval_gpus[@]} == 0 )); then
+  echo "no GPUs available for GNU Go evaluation" >&2
+  exit 1
+fi
+pair_base=$((10 / ${#eval_gpus[@]}))
+pair_extra=$((10 % ${#eval_gpus[@]}))
+eval_pids=()
+eval_files=()
+for index in "${!eval_gpus[@]}"; do
+  pairs="$pair_base"
+  if (( index < pair_extra )); then
+    pairs=$((pairs + 1))
+  fi
+  (( pairs > 0 )) || continue
+  games=$((pairs * 2))
+  eval_gpu="${eval_gpus[$index]}"
+  shard="$run_dir/eval-gnugo-gpu${eval_gpu}.txt"
+  eval_files+=("$shard")
+  env CUDA_VISIBLE_DEVICES="$eval_gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
+    "$python_bin" -m gozero.evaluate \
+    --ckpt "$run_dir/latest.pkl" --games "$games" --sims 128 \
+    --max-plies 722 --seed "$((4200 + index))" \
+    --vs-gtp "/usr/games/gnugo --mode gtp --boardsize 19 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead" \
+    > "$shard" 2>&1 &
+  eval_pids+=("$!")
+done
+eval_failed=0
+for eval_pid in "${eval_pids[@]}"; do
+  if ! wait "$eval_pid"; then
+    eval_failed=1
+  fi
+done
+if (( eval_failed )); then
+  echo "one or more parallel GNU Go evaluation shards failed" >&2
+  for shard in "${eval_files[@]}"; do
+    echo "===== $shard =====" >&2
+    tail -n 40 "$shard" >&2 || true
+  done
+  exit 1
+fi
+"$python_bin" scripts/aggregate_eval_results.py \
+  --output "$run_dir/eval-gnugo.txt" --expected-games 20 \
+  "${eval_files[@]}"
 
 env CUDA_VISIBLE_DEVICES="$gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
   "$python_bin" -m scripts.benchmark_checkpoint \
@@ -93,7 +135,8 @@ fi
   --latency "$latency"
 "$python_bin" -m py_compile \
   gozero/net.py gozero/train.py gozero/server.py \
-  scripts/gen_app_stats.py scripts/benchmark_checkpoint.py
+  scripts/gen_app_stats.py scripts/benchmark_checkpoint.py \
+  scripts/aggregate_eval_results.py
 
 (cd "$run_dir" && sha256sum latest.pkl > latest.pkl.sha256)
 printf '%s\n' \
