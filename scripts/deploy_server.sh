@@ -14,6 +14,7 @@ cd "$repo_dir"
 command -v docker >/dev/null
 command -v curl >/dev/null
 command -v git >/dev/null
+command -v python3 >/dev/null
 command -v sha256sum >/dev/null
 
 # A normal Git checkout may leave an LFS pointer in place of the 106 MB model.
@@ -50,5 +51,21 @@ until curl --fail --silent --show-error --max-time 3 \
 done
 
 "${compose[@]}" ps
-curl --fail --silent --show-error http://127.0.0.1:8765/health
-echo
+health_json="$(curl --fail --silent --show-error http://127.0.0.1:8765/health)"
+python3 -c '
+import json
+import sys
+
+health = json.loads(sys.argv[1])
+expected = {
+    "ok": True,
+    "model": "gozero go_19x19 192ch x 12blk",
+    "iteration": 1000,
+    "board_size": 19,
+}
+wrong = {key: (value, health.get(key)) for key, value in expected.items()
+         if health.get(key) != value}
+if wrong:
+    raise SystemExit(f"deployed model identity mismatch: {wrong}")
+print(json.dumps(health, separators=(",", ":")))
+' "$health_json"
