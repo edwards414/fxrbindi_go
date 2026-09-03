@@ -56,19 +56,57 @@ while true; do
   train_pid="$!"
 done
 
-env CUDA_VISIBLE_DEVICES="$gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
-  "$python_bin" -m gozero.evaluate \
-  --ckpt "$run_dir/latest.pkl" --vs-random --games 256 --sims 32 \
-  > "$run_dir/eval-random.txt" 2>&1
+IFS=',' read -r -a eval_gpus <<< "$train_gpus"
+if (( ${#eval_gpus[@]} == 0 )); then
+  echo "no GPUs available for final evaluation" >&2
+  exit 1
+fi
+
+# A single 256-game JAX batch can exceed one H100's memory. Split the random
+# gate into black/white pairs across every training GPU and aggregate the
+# shards so the published result still contains exactly 256 balanced games.
+random_pair_base=$((128 / ${#eval_gpus[@]}))
+random_pair_extra=$((128 % ${#eval_gpus[@]}))
+random_pids=()
+random_files=()
+for index in "${!eval_gpus[@]}"; do
+  pairs="$random_pair_base"
+  if (( index < random_pair_extra )); then
+    pairs=$((pairs + 1))
+  fi
+  (( pairs > 0 )) || continue
+  games=$((pairs * 2))
+  eval_gpu="${eval_gpus[$index]}"
+  shard="$run_dir/eval-random-gpu${eval_gpu}.txt"
+  random_files+=("$shard")
+  env CUDA_VISIBLE_DEVICES="$eval_gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
+    "$python_bin" -m gozero.evaluate \
+    --ckpt "$run_dir/latest.pkl" --vs-random \
+    --games "$games" --sims 32 --seed "$((2400 + index))" \
+    > "$shard" 2>&1 &
+  random_pids+=("$!")
+done
+random_failed=0
+for eval_pid in "${random_pids[@]}"; do
+  if ! wait "$eval_pid"; then
+    random_failed=1
+  fi
+done
+if (( random_failed )); then
+  echo "one or more parallel random evaluation shards failed" >&2
+  for shard in "${random_files[@]}"; do
+    echo "===== $shard =====" >&2
+    tail -n 40 "$shard" >&2 || true
+  done
+  exit 1
+fi
+"$python_bin" scripts/aggregate_eval_results.py \
+  --output "$run_dir/eval-random.txt" --expected-games 256 \
+  "${random_files[@]}"
 
 # GNU Go mode is sequential within one process. Split the 20 games into
 # black/white pairs across every H100 that completed training, preserving an
 # exactly balanced colour assignment while cutting the wall-clock gate time.
-IFS=',' read -r -a eval_gpus <<< "$train_gpus"
-if (( ${#eval_gpus[@]} == 0 )); then
-  echo "no GPUs available for GNU Go evaluation" >&2
-  exit 1
-fi
 pair_base=$((10 / ${#eval_gpus[@]}))
 pair_extra=$((10 % ${#eval_gpus[@]}))
 eval_pids=()
