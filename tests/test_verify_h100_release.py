@@ -2,6 +2,8 @@ import hashlib
 import json
 import pathlib
 import pickle
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -179,6 +181,18 @@ class VerifyH100ReleaseTest(unittest.TestCase):
                     root / "destination",
                     expected_iteration=3,
                 )
+
+    def test_integration_cli_help_runs_from_repo_root(self):
+        repo_root = pathlib.Path(__file__).resolve().parents[1]
+        completed = subprocess.run(
+            [sys.executable, "scripts/integrate_h100_release.py", "--help"],
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("--expected-iteration", completed.stdout)
 
 
 if __name__ == "__main__":

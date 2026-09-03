@@ -7,9 +7,13 @@ import json
 import os
 import pathlib
 import shutil
+import sys
 import tarfile
 import tempfile
 from typing import Any
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from scripts.verify_h100_release import verify_release_bundle
 
