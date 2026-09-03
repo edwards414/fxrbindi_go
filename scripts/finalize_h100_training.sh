@@ -18,22 +18,49 @@ run_dir="$repo_dir/runs/v5_19x19"
 run_rel="runs/v5_19x19"
 python_bin="${GOZERO_PYTHON:-/home/go_ai/.venv-gozero/bin/python}"
 gpu="${GOZERO_FINALIZE_GPU:-0}"
-
-while kill -0 "$train_pid" 2>/dev/null; do
-  sleep 60
-done
+train_gpus="${GOZERO_TRAIN_GPUS:-0,1,2,3,4,6,7}"
 
 cd "$repo_dir"
-last_iter="$($python_bin -c '
+last_iteration() {
+  "$python_bin" -c '
 import json, pathlib
 p = pathlib.Path("runs/v5_19x19/metrics.jsonl")
 rows = [json.loads(line) for line in p.read_text().splitlines() if line]
 print(rows[-1]["iter"] if rows else 0)
-')"
-if [[ "$last_iter" != "1000" ]]; then
-  echo "refusing to publish incomplete training: iteration $last_iter" >&2
-  exit 1
-fi
+'
+}
+
+restart_count=0
+while true; do
+  while kill -0 "$train_pid" 2>/dev/null; do
+    sleep 60
+  done
+  last_iter="$(last_iteration)"
+  if (( last_iter >= 1000 )); then
+    break
+  fi
+  if (( restart_count >= 3 )); then
+    echo "training stopped at iteration $last_iter after $restart_count restarts" >&2
+    exit 1
+  fi
+  restart_count=$((restart_count + 1))
+  echo "training stopped at iteration $last_iter; restart $restart_count/3" >&2
+  env \
+    CUDA_VISIBLE_DEVICES="$train_gpus" \
+    XLA_PYTHON_CLIENT_MEM_FRACTION=0.88 \
+    JAX_COMPILATION_CACHE_DIR="$repo_dir/.jax_cache" \
+    "$python_bin" -m gozero.train \
+    --env-id go_19x19 --run-dir "$run_dir" \
+    --channels 192 --blocks 12 --compute-dtype bfloat16 \
+    --resume "$run_dir/latest.pkl" \
+    --selfplay-batch 64 --sims 32 --max-considered 16 \
+    --max-steps 722 --pass-guard-ply 100 --train-batch 2048 \
+    --lr 0.001 --weight-decay 0.0001 --warmup-iters 20 \
+    --decay-iters 1000 --iters 1000 --eval-every 25 \
+    --eval-batch 32 --save-every 25 --seed 42 \
+    >> "$run_dir/train.log" 2>&1 &
+  train_pid="$!"
+done
 
 env CUDA_VISIBLE_DEVICES="$gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
   "$python_bin" -m gozero.evaluate \
