@@ -1,21 +1,15 @@
 #!/usr/bin/env bash
-# Run inside the H100 clone. The script publishes only a complete, evaluated
-# iteration-1000 run; any failed gate stops before git push.
+# Run inside the H100 clone. The script prepares only a complete, evaluated
+# iteration-1000 release bundle; any failed gate stops before marking it ready.
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-  echo "usage: GITHUB_TOKEN_FILE=/path/to/token $0 TRAIN_PID" >&2
+  echo "usage: $0 TRAIN_PID" >&2
   exit 2
 fi
-if [[ -z "${GITHUB_TOKEN_FILE:-}" || ! -r "$GITHUB_TOKEN_FILE" ]]; then
-  echo "GITHUB_TOKEN_FILE must name a readable token file" >&2
-  exit 2
-fi
-
 train_pid="$1"
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 run_dir="$repo_dir/runs/v5_19x19"
-run_rel="runs/v5_19x19"
 python_bin="${GOZERO_PYTHON:-/home/go_ai/.venv-gozero/bin/python}"
 gpu="${GOZERO_FINALIZE_GPU:-0}"
 train_gpus="${GOZERO_TRAIN_GPUS:-0,1,2,3,4,6,7}"
@@ -101,34 +95,11 @@ fi
   gozero/net.py gozero/train.py gozero/server.py \
   scripts/gen_app_stats.py scripts/benchmark_checkpoint.py
 
-git fetch origin main h100-19x19-training
-git merge --ff-only origin/h100-19x19-training
-git merge-base --is-ancestor origin/main HEAD
-git lfs install --local
-git add -f "$run_rel/latest.pkl"
-git add \
-  "$run_rel/config.json" \
-  "$run_rel/metrics.jsonl" \
-  "$run_rel/eval-random.txt" \
-  "$run_rel/eval-gnugo.txt" \
-  "$run_rel/benchmark-latency.json" \
-  app/assets/model_stats.json
-git -c user.name="GoZero H100 Trainer" \
-  -c user.email="actions@users.noreply.github.com" \
-  commit -m "feat: deploy trained 19x19 model"
-
-askpass="$(mktemp)"
-trap 'rm -f "$askpass"' EXIT
-chmod 700 "$askpass"
+(cd "$run_dir" && sha256sum latest.pkl > latest.pkl.sha256)
 printf '%s\n' \
-  '#!/bin/sh' \
-  'case "$1" in' \
-  '  *Username*) printf "%s\\n" "x-access-token" ;;' \
-  '  *Password*) exec cat "$GITHUB_TOKEN_FILE" ;;' \
-  'esac' > "$askpass"
-export GITHUB_TOKEN_FILE
-GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 \
-  git push https://github.com/edwards414/fxrbindi_go.git HEAD:main
-
-printf '%s\n' "published iteration 1000 at $(date -u +%FT%TZ)" \
-  > "$run_dir/finalize-complete.txt"
+  "release ready at $(date -u +%FT%TZ)" \
+  "iteration=1000" \
+  "random_win=$random_win" \
+  "gnugo_win=$gnugo_win" \
+  "latency=$latency" \
+  > "$run_dir/release-ready.txt"
