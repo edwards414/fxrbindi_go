@@ -47,7 +47,7 @@ env CUDA_VISIBLE_DEVICES="$gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
   > "$run_dir/eval-gnugo.txt" 2>&1
 
 env CUDA_VISIBLE_DEVICES="$gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
-  "$python_bin" scripts/benchmark_checkpoint.py \
+  "$python_bin" -m scripts.benchmark_checkpoint \
   --ckpt "$run_dir/latest.pkl" \
   > "$run_dir/benchmark-latency.json"
 
