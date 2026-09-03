@@ -1,10 +1,14 @@
+import json
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from scripts.smoke_test_server import (
     SmokeError,
     _validate_game,
     _validate_health,
     _validate_queue,
+    smoke_test,
 )
 
 
@@ -44,7 +48,90 @@ def game_payload():
     }
 
 
+class FakeGoZeroHandler(BaseHTTPRequestHandler):
+    job_id = "a" * 32
+
+    def log_message(self, _format, *_args):
+        pass
+
+    def send_json(self, payload, status=200, headers=None):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/health":
+            return self.send_json(
+                {
+                    "ok": True,
+                    "model": "gozero go_19x19 192ch x 12blk",
+                    "iteration": 1000,
+                    "board_size": 19,
+                    "queue": queue_payload(),
+                }
+            )
+        if self.path == "/queue":
+            return self.send_json(queue_payload())
+        if self.path == f"/jobs/{self.job_id}":
+            return self.send_json(
+                {"job_id": self.job_id, "status": "completed", "result": game_payload()}
+            )
+        if self.path.startswith("/state?game_id="):
+            state = game_payload()
+            state["ai_move"] = None
+            return self.send_json(state)
+        return self.send_json({"error": "not found"}, 404)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(length) or b"{}")
+        if self.path == "/new":
+            if payload.get("human_color") != "white" or not self.headers.get(
+                "Idempotency-Key"
+            ):
+                return self.send_json({"error": "bad new request"}, 400)
+            return self.send_json(
+                {"job_id": self.job_id, "status": "queued", "queue_position": 1},
+                202,
+                {"Location": f"/jobs/{self.job_id}"},
+            )
+        if self.path == "/resign":
+            resigned = game_payload()
+            resigned["game_over"] = True
+            resigned["result"] = {
+                "winner": "black",
+                "reason": "resign",
+                "margin": None,
+            }
+            return self.send_json(resigned)
+        return self.send_json({"error": "not found"}, 404)
+
+
 class ServerSmokeValidationTest(unittest.TestCase):
+    def test_full_http_smoke_flow(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FakeGoZeroHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = smoke_test(
+                f"http://127.0.0.1:{server.server_port}",
+                expected_model="gozero go_19x19 192ch x 12blk",
+                expected_iteration=1000,
+                expected_board_size=19,
+                timeout=2,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(2)
+        self.assertEqual(result["iteration"], 1000)
+        self.assertEqual(result["ai_move"], 360)
+
     def test_accepts_expected_health_queue_and_game(self):
         health = {
             "ok": True,
