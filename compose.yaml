@@ -15,7 +15,7 @@ services:
       GOZERO_MAX_QUEUE: "${GOZERO_MAX_QUEUE:-64}"
       GOZERO_JOB_TTL: "${GOZERO_JOB_TTL:-900}"
     volumes:
-      - ./runs/v4/latest.pkl:/models/latest.pkl:ro
+      - ./runs/v5_19x19/latest.pkl:/models/latest.pkl:ro
       - gozero-server-data:/data
 
   # https://go.fxrbindi.com → gozero-server:8765

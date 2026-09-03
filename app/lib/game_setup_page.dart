@@ -334,7 +334,7 @@ class _GameSetupPageState extends State<GameSetupPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: const [
-            _KomiNote('先', '黑棋先落子，天生佔了先行之利；在九路小盤上這個便宜尤其明顯。'),
+            _KomiNote('先', '黑棋先落子，天生佔了先行之利；貼目用來平衡這項優勢。'),
             _KomiNote(
               '補',
               '終局計點時，把貼目加到白方，用來抵銷這個先行之利。'

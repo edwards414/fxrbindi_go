@@ -1,5 +1,5 @@
 name: gozero_go
-description: "玄石 GoZero — 9 路圍棋對弈，對手是自研的 AlphaZero 系 AI。"
+description: "玄石 GoZero — 19 路圍棋對弈，對手是自研的 AlphaZero 系 AI。"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

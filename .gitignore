@@ -5,6 +5,7 @@ untitled.txt
 
 # large training artifacts (checkpoints ~31MB each, >2GB total)
 runs/**/*.pkl
+!runs/v5_19x19/latest.pkl
 baselines/*.ckpt
 
 # local CPU inference env (app engine server)

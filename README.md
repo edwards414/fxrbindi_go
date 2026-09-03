@@ -1,7 +1,7 @@
 # gozero — Gumbel-AlphaZero Go on H100
 
-自研圍棋 AI 訓練系統。整條管線(棋盤規則、MCTS、神經網路)都是 jitted JAX 程式碼,
-自對弈完全在 GPU 上向量化執行,單卡同時下上千盤棋。
+自研 19 路圍棋 AI 訓練系統。整條管線（棋盤規則、MCTS、神經網路）都是
+jitted JAX 程式碼，自對弈完全在 GPU 上向量化執行。
 
 ## 相對 AlphaGo Zero (2017) 的架構改進
 
@@ -25,13 +25,19 @@
 ## 訓練
 
 ```bash
-cd /home/go_ai
-CUDA_VISIBLE_DEVICES=0,3,4 XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
-  python -m gozero.train --run-dir runs/v1 | tee -a runs/v1/train.log
+cd /home/gozero19
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,6,7 XLA_PYTHON_CLIENT_MEM_FRACTION=0.88 \
+  python -m gozero.train \
+    --env-id go_19x19 --run-dir runs/v5_19x19 \
+    --channels 192 --blocks 12 --compute-dtype bfloat16 \
+    --init-from /home/go_ai/runs/v4/latest.pkl \
+    --selfplay-batch 64 --sims 32 --max-steps 722 \
+    --pass-guard-ply 100 --train-batch 2048
 ```
 
-指標寫入 `runs/v1/metrics.jsonl`(每迭代一行 JSON),checkpoint 存 `runs/v1/latest.pkl`
-與每 25 迭代的 `ckpt_XXXXXX.pkl`。斷點續訓:`--resume runs/v1/latest.pkl`。
+指標寫入 `runs/v5_19x19/metrics.jsonl`（每迭代一行 JSON），checkpoint 存
+`runs/v5_19x19/latest.pkl` 與每 25 迭代的 `ckpt_XXXXXX.pkl`。斷點續訓：
+`--resume runs/v5_19x19/latest.pkl`。
 
 進度追蹤:每 10 迭代跟「凍結的舊自我(anchor)」打 384 盤,勝率 >85% 就把 anchor
 換成當前模型 —— metrics 裡 `anchor_updated` 出現的頻率就是進步速度。
@@ -42,10 +48,11 @@ CUDA_VISIBLE_DEVICES=0,3,4 XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
 # vs pgx 官方 AlphaZero baseline(強業餘水準)
 python -m gozero.evaluate --ckpt runs/v1/latest.pkl --vs-baseline --games 256
 
-# vs GNU Go level 10(--play-out-aftermath/--capture-all-dead 讓 gnugo 把死子
+# 19 路 vs GNU Go level 10（--play-out-aftermath/--capture-all-dead 讓 gnugo 把死子
 # 提乾淨再 pass,否則 Tromp-Taylor 會把死子算成活的,勝率會被高估)
-python -m gozero.evaluate --ckpt runs/v1/latest.pkl --sims 256 --games 20 \
-  --vs-gtp "gnugo --mode gtp --boardsize 9 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead"
+python -m gozero.evaluate --ckpt runs/v5_19x19/latest.pkl --sims 128 --games 20 \
+  --max-plies 722 \
+  --vs-gtp "gnugo --mode gtp --boardsize 19 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead"
 
 # 新舊 checkpoint 對戰(雙方都帶搜索)
 python -m gozero.evaluate --ckpt new.pkl --vs-ckpt old.pkl --sims 32 --opp-sims 32
@@ -53,12 +60,12 @@ python -m gozero.evaluate --ckpt new.pkl --vs-ckpt old.pkl --sims 32 --opp-sims 
 
 ## iPhone App（Flutter，`app/`）
 
-「玄石」— 9 路對弈 app（墨×原木×宣紙風格），內建模型性能頁。引擎跑在 Mac 上，
+「玄石」— 19 路對弈 app（墨×原木×宣紙風格），內建模型性能頁。引擎跑在 Mac 上，
 模擬器透過 localhost 連線:
 
 ```bash
 # 1. 啟動引擎伺服器（首次啟動會 JIT 編譯三檔強度，約 40 秒）
-JAX_PLATFORMS=cpu .venv/bin/python -m gozero.server --ckpt runs/v4/latest.pkl --port 8765
+JAX_PLATFORMS=cpu .venv/bin/python -m gozero.server --ckpt runs/v5_19x19/latest.pkl --port 8765
 
 # 2. 跑 app（iPhone 17 模擬器）
 cd app && flutter run -d "iPhone 17"
@@ -79,7 +86,7 @@ docker build -t gozero-server .
 # 啟動 server
 docker run --rm \
   -p 8765:8765 \
-  -v "$PWD/runs/v4/latest.pkl:/models/latest.pkl:ro" \
+  -v "$PWD/runs/v5_19x19/latest.pkl:/models/latest.pkl:ro" \
   -v gozero-server-data:/data \
   gozero-server
 
@@ -153,10 +160,11 @@ GitHub `testflight` environment 需要兩個 variables：
 - 斷點續訓:`scripts/restart_train.sh [GPUS] [RUN_DIR]`
 - 手動寄信:`python scripts/send_mail.py --subject "..." < body.txt`
 
-## 之後擴到 19x19
+## 9 路權重遷移到 19 路
 
-`--env-id go_19x19 --channels 192 --blocks 12 --max-steps 512` 即可;
-其餘程式碼不變(座標/網路/搜索都以環境尺寸參數化)。
+`--init-from` 會沿用名稱與形狀相同的卷積主幹、正規化及棋盤無關權重；
+策略輸出與價值頭中依賴棋盤面積的張量則重新初始化。`--max-steps 0` 會自動使用
+PGX 上限 `2 × 棋盤面積`，19 路即 722 手。
 
 ## 規則
 

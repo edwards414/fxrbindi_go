@@ -9,10 +9,10 @@ ASC 超過上限會直接擋著不讓存，所以改字後請重新數。
 
 ## 繁體中文（zh-Hant）
 
-### App 名稱 — 11/30
+### App 名稱 — 12/30
 
 ```
-玄石 — 九路圍棋對弈
+玄石 — 十九路圍棋對弈
 ```
 
 > ASC 現在填的是 `GO AI APP`，送審前要改掉。名稱一旦上架就牽動搜尋排名，
@@ -31,7 +31,7 @@ ASC 超過上限會直接擋著不讓存，所以改字後請重新數。
 ```
 
 > 逗號分隔、**不要加空格**（空格會被算進 100 字上限）。
-> 名稱與副標題裡出現過的詞（圍棋／九路／對弈／手談／AI）Apple 已自動索引，
+> 名稱與副標題裡出現過的詞（圍棋／十九路／對弈／手談／AI）Apple 已自動索引，
 > 這裡刻意不重複，把額度留給沒用過的詞。
 
 ### 推廣文字 — 48/170
@@ -42,10 +42,10 @@ ASC 超過上限會直接擋著不讓存，所以改字後請重新數。
 
 > 推廣文字不必送審就能改，之後想換活動訊息隨時可換。
 
-### 描述 — 605/4000
+### 描述 — 596/4000
 
 ```
-九路棋盤，一局約十分鐘。對手是一個從零開始、靠自我對弈學會下棋的 AI——它沒有讀過任何一局人類棋譜，所有棋感都是自己下出來的。
+完整十九路棋盤。對手是一個靠自我對弈學會下棋的 AI——它沒有讀過任何一局人類棋譜，所有棋感都是自己下出來的。
 
 ■ 三段棋力
 輕靈、均衡、深思。三檔用的是同一個神經網路，差別在每一手思考的深度：輕靈憑直覺落子，均衡搜索 32 次，深思搜索 128 次。從入門到夠你認真下，挑一個合手的。
@@ -80,10 +80,10 @@ AI 的運算在伺服器端進行，所以對弈時需要網路連線。沒有�
 
 主要語言是 zh-Hant，不加英文也送得出去；加了能讓非中文區的人搜得到。
 
-### App 名稱 — 16/30
+### App 名稱 — 18/30
 
 ```
-XuanShi — 9×9 Go
+XuanShi — 19×19 Go
 ```
 
 ### 副標題 — 27/30
@@ -92,10 +92,10 @@ XuanShi — 9×9 Go
 Go against a self-taught AI
 ```
 
-### 關鍵字 — 77/100
+### 關鍵字 — 79/100
 
 ```
-go,baduk,weiqi,board game,9x9,strategy,puzzle,ai opponent,game record,winrate
+go,baduk,weiqi,board game,19x19,strategy,puzzle,ai opponent,game record,winrate
 ```
 
 ### 推廣文字 — 146/170
@@ -104,10 +104,10 @@ go,baduk,weiqi,board game,9x9,strategy,puzzle,ai opponent,game record,winrate
 Three strength levels, live win-rate graph, adjustable komi and handicap. The AI learned entirely from self-play — it has never seen a human game.
 ```
 
-### 描述 — 1284/4000
+### 描述 — 1244/4000
 
 ```
-A 9×9 board, about ten minutes a game. Your opponent is an AI that learned Go from scratch by playing against itself — it has never studied a single human game.
+A full 19×19 board. Your opponent is an AI that learned Go through self-play — it has never studied a single human game.
 
 ■ Three strength levels
 Intuition, Balanced, and Deep. All three share the same neural network; what changes is how far ahead it looks — pure intuition, 32 searches, or 128 searches per move.

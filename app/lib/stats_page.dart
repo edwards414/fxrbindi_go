@@ -59,7 +59,7 @@ class _StatsPageState extends State<StatsPage> {
                 _card('架構 · AZNet', [
                   for (final row in s['architecture']) _kv(row[0], row[1]),
                 ]),
-                _card('推理延遲 · 每手（Apple Silicon CPU）', [
+                _card(s['latency_title'] ?? '推理延遲 · 每手', [
                   for (final row in s['latency'])
                     _kv(row[0], row[1], keyWidth: 132),
                 ]),
@@ -75,11 +75,15 @@ class _StatsPageState extends State<StatsPage> {
                     _pts(s['loss_curve'], 'iter', 'value'),
                   ),
                 ]),
-                _chartCard('對 pgx AlphaZero baseline 勝率爬升', [
+                _chartCard(s['progress_title'] ?? '評測勝率', [
                   _Series(
                     '勝率 %',
                     Sumi.seal,
-                    _pts(s['baseline_curve'], 'iter', 'win'),
+                    _pts(
+                      s['progress_curve'] ?? s['baseline_curve'],
+                      'iter',
+                      'win',
+                    ),
                   ),
                 ], yMax: 100),
                 _techDetails(s),
@@ -88,12 +92,15 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  /// 最重要的那個數字放大當主角：對 pgx baseline 的勝率。其餘評測數字降為次要清單。
+  /// 最重要的那個數字放大當主角：19 路優先顯示 GNU Go 實測。
   Widget _hero(Map<String, dynamic> s) {
     final evals = (s['evals'] as List).cast<Map<String, dynamic>>();
     final hero = evals.firstWhere(
-      (e) => (e['opponent'] as String).contains('baseline'),
-      orElse: () => evals.first,
+      (e) => (e['opponent'] as String).contains('GNU Go'),
+      orElse: () => evals.firstWhere(
+        (e) => (e['opponent'] as String).contains('baseline'),
+        orElse: () => evals.first,
+      ),
     );
     final others = evals.where((e) => e != hero).toList();
     return Container(
