@@ -58,6 +58,14 @@ if [[ -z "$random_win" || -z "$gnugo_win" || "$latency" != \{*\} ]]; then
   echo "could not parse evaluation or latency output" >&2
   exit 1
 fi
+if ! awk -v win="$random_win" 'BEGIN { exit !(win >= 95.0) }'; then
+  echo "refusing to publish: random win rate $random_win% is below 95%" >&2
+  exit 1
+fi
+if ! awk -v win="$gnugo_win" 'BEGIN { exit !(win >= 50.0) }'; then
+  echo "refusing to publish: GNU Go level 10 win rate $gnugo_win% is below 50%" >&2
+  exit 1
+fi
 
 "$python_bin" scripts/gen_app_stats.py \
   --vs-random "$random_win" --vs-gnugo "$gnugo_win" \
