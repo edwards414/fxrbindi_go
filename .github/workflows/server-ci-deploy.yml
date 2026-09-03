@@ -17,6 +17,7 @@ on:
       - "runs/v5_19x19/latest.pkl.sha256"
       - "deploy/**"
       - "scripts/deploy_server.sh"
+      - "scripts/smoke_test_server.py"
       - ".github/workflows/server-ci-deploy.yml"
   workflow_dispatch:
 

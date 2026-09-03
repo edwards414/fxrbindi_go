@@ -69,3 +69,11 @@ if wrong:
     raise SystemExit(f"deployed model identity mismatch: {wrong}")
 print(json.dumps(health, separators=(",", ":")))
 ' "$health_json"
+
+# Prove that the public queue contract and one real 19x19 AI move work with
+# the deployed checkpoint. The smoke-test game is resigned after validation.
+python3 scripts/smoke_test_server.py \
+  --base-url http://127.0.0.1:8765 \
+  --expected-iteration 1000 \
+  --expected-board-size 19 \
+  --timeout 300
