@@ -2,9 +2,11 @@ import hashlib
 import json
 import pathlib
 import pickle
+import tarfile
 import tempfile
 import unittest
 
+from scripts.integrate_h100_release import EXPECTED_MEMBERS, integrate_release
 from scripts.verify_h100_release import EXPECTED_CONFIG, verify_release_bundle
 
 
@@ -63,6 +65,8 @@ class VerifyH100ReleaseTest(unittest.TestCase):
             "gnugo_win=65.0\n"
             'latency={"0":10,"32":250,"128":950}\n'
         )
+        (run_dir / "train.log").write_text("training complete\n")
+        (run_dir / "finalize.log").write_text("evaluation complete\n")
         stats_path = root / "app" / "assets" / "model_stats.json"
         stats_path.parent.mkdir(parents=True)
         stats_path.write_text(
@@ -83,6 +87,23 @@ class VerifyH100ReleaseTest(unittest.TestCase):
             )
         )
         return run_dir, stats_path
+
+    def make_archive(
+        self,
+        source_root: pathlib.Path,
+        output_root: pathlib.Path,
+        extra: pathlib.Path | None = None,
+    ):
+        bundle_path = output_root / "gozero19-v5-release.tar.gz"
+        with tarfile.open(bundle_path, "w:gz") as archive:
+            for name in sorted(EXPECTED_MEMBERS):
+                archive.add(source_root / name, arcname=name)
+            if extra is not None:
+                archive.add(extra, arcname=extra.name)
+        digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+        checksum_path = output_root / "gozero19-v5-release.tar.gz.sha256"
+        checksum_path.write_text(f"{digest}  {bundle_path.name}\n")
+        return bundle_path, checksum_path
 
     def test_accepts_complete_consistent_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,6 +144,40 @@ class VerifyH100ReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "below release gate"):
                 verify_release_bundle(
                     run_dir, stats_path, expected_iteration=3
+                )
+
+    def test_integrates_exact_verified_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "source"
+            destination = root / "destination"
+            self.make_bundle(source)
+            bundle_path, checksum_path = self.make_archive(source, root)
+            result = integrate_release(
+                bundle_path,
+                checksum_path,
+                destination,
+                expected_iteration=3,
+            )
+            installed = destination / "runs" / "v5_19x19"
+            self.assertEqual(result["iteration"], 3)
+            self.assertTrue((installed / "latest.pkl").is_file())
+            self.assertTrue((destination / "app/assets/model_stats.json").is_file())
+
+    def test_rejects_archive_with_extra_member(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "source"
+            self.make_bundle(source)
+            extra = root / "unexpected.txt"
+            extra.write_text("not part of the release\n")
+            bundle_path, checksum_path = self.make_archive(source, root, extra)
+            with self.assertRaisesRegex(ValueError, "unexpected release bundle members"):
+                integrate_release(
+                    bundle_path,
+                    checksum_path,
+                    root / "destination",
+                    expected_iteration=3,
                 )
 
 
