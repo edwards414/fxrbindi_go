@@ -96,7 +96,7 @@ def main():
             f"v5 是 192ch×12blk、9.28M 參數的完整 19 路模型，訓練 {args.iter:,} 輪。"
             "勝率皆來自本次 checkpoint 的實際對局，不沿用 9 路模型數據。"
         ),
-        "latency_title": "推理延遲 · 每手（正式伺服器 CPU）",
+        "latency_title": "推理延遲 · 每手（H100 單卡）",
         "latency": [
             ["直覺（0 sims）", f"~{lat['0']} ms — 純策略網路一次前向"],
             ["均衡（32 sims）", f"~{lat['32']} ms — 與訓練同規格的 Gumbel 搜索"],
