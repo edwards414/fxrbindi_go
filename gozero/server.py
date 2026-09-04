@@ -1,8 +1,9 @@
 """HTTP engine server for the Flutter app.
 
 Usage:
-    python -m gozero.server --ckpt runs/v1/latest.pkl --port 8765
-    python -m gozero.server --ckpt /models/latest.pkl --host 0.0.0.0 --port 8765
+    python -m gozero.server --ckpt runs/v4/latest.pkl --port 8765
+    python -m gozero.server --ckpt /models/19x19.pkl --ckpt /models/9x9.pkl \
+        --host 0.0.0.0 --port 8765
 
 The iOS-simulator app talks to http://127.0.0.1:8765 (the simulator shares
 the host network).  HTTP connections are threaded, but inference runs in a
@@ -15,7 +16,7 @@ Endpoints (JSON in/out):
     GET  /health                          -> model and queue info
     GET  /queue                           -> current inference capacity
     GET  /jobs/<job_id>                   -> queued/running/completed result
-    POST /new    {level, human_color, komi?, handicap?} -> 202 inference job
+    POST /new    {level, human_color, board_size?, komi?, handicap?} -> 202 job
     POST /move   {game_id, action, expected_moves?}     -> 202 inference job
     POST /undo   {game_id, expected_moves?}             -> 202 inference job
     POST /resign {game_id}                -> immediate game result
@@ -93,7 +94,7 @@ class Engine:
         "GOZERO_MAX_QUEUE", os.environ.get("GOZERO_MAX_WAITERS", 64)))
     JOB_TTL = int(os.environ.get("GOZERO_JOB_TTL", 15 * 60))
 
-    def __init__(self, ckpt_path: str):
+    def __init__(self, ckpt_path: str, jobs: InferenceJobQueue | None = None):
         self.env, self.net, self.params, ck = load_ckpt(ckpt_path)
         self.size = int(self.env.observation_shape[0])
         self.iteration = ck.get("iteration")
@@ -124,11 +125,19 @@ class Engine:
             self.search_fn(DEFAULT_KOMI, name)(
                 self.params, jax.random.PRNGKey(0), batch_of_one(g.state))
         self.forward(batch_of_one(g.state).observation)
-        self.jobs = InferenceJobQueue(
+        self.jobs = jobs or InferenceJobQueue(
             workers=self.SEARCH_SLOTS,
             max_pending=self.MAX_QUEUE,
             result_ttl=self.JOB_TTL,
         )
+
+    def model_info(self) -> dict:
+        cfg = self.config
+        return {
+            "model": f"gozero {cfg['env_id']} {cfg['channels']}ch x {cfg['blocks']}blk",
+            "iteration": self.iteration,
+            "board_size": self.size,
+        }
 
     def _trim_komi_cache(self):
         """淘汰最久沒用到的貼目，預設貼目永久保留。呼叫端須持有 cache_lock。"""
@@ -320,6 +329,9 @@ class Engine:
 
     # -- persistence: survive server restarts ---------------------------------
     def save_games(self, path: str):
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with self.games_lock:
             games = list(self.games.items())
         games_data = {}
@@ -374,8 +386,62 @@ class Engine:
             print(f"restored {len(self.games)} game(s)", flush=True)
 
 
+class EnginePool:
+    """Routes board sizes to models while enforcing one global inference queue."""
+
+    def __init__(self, ckpt_paths: list[str]):
+        self.jobs = InferenceJobQueue(
+            workers=Engine.SEARCH_SLOTS,
+            max_pending=Engine.MAX_QUEUE,
+            result_ttl=Engine.JOB_TTL,
+        )
+        self.engines: dict[int, Engine] = {}
+        self.ckpt_paths: dict[int, str] = {}
+        for path in ckpt_paths:
+            print(f"loading {path} ...", flush=True)
+            engine = Engine(path, jobs=self.jobs)
+            if engine.size in self.engines:
+                raise ValueError(f"duplicate {engine.size}x{engine.size} checkpoint")
+            self.engines[engine.size] = engine
+            self.ckpt_paths[engine.size] = path
+        if not self.engines:
+            raise ValueError("at least one checkpoint is required")
+        # 19 路是既有 API 的行為；未傳 board_size 的舊版 App 繼續走最大棋盤。
+        self.default_size = max(self.engines)
+
+    def engine_for_size(self, value=None) -> Engine:
+        if value is None:
+            return self.engines[self.default_size]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("bad board_size")
+        engine = self.engines.get(value)
+        if engine is None:
+            sizes = ", ".join(str(size) for size in sorted(self.engines))
+            raise ValueError(f"unsupported board_size; choose {sizes}")
+        return engine
+
+    def engine_for_game(self, game_id) -> tuple[Engine | None, Game | None]:
+        for engine in self.engines.values():
+            game = engine.get_game(game_id)
+            if game is not None:
+                return engine, game
+        return None, None
+
+    def health(self) -> dict:
+        primary = self.engines[self.default_size].model_info()
+        return {
+            "ok": True,
+            **primary,
+            "board_sizes": sorted(self.engines),
+            "models": [
+                self.engines[size].model_info() for size in sorted(self.engines)
+            ],
+            "queue": self.jobs.status(),
+        }
+
+
 class Handler(BaseHTTPRequestHandler):
-    engine: Engine  # set at startup
+    engines: EnginePool  # set at startup
     timeout = 30  # cap how long one thread waits on a silent connection
 
     def log_message(self, fmt, *args):  # quiet
@@ -400,43 +466,36 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({"error": "internal error"}, 500)
 
     def _get(self):
-        e = self.engine
+        engines = self.engines
         path = urlparse(self.path).path
         if path.startswith("/jobs/"):
             job_id = path.removeprefix("/jobs/")
             if not re.fullmatch(r"[0-9a-f]{32}", job_id):
                 return self._send({"error": "unknown job"}, 404)
-            view = e.jobs.view(job_id)
+            view = engines.jobs.view(job_id)
             if view is None:
                 return self._send({"error": "unknown or expired job"}, 404)
             return self._send(view)
         if path == "/queue":
-            return self._send(e.jobs.status())
+            return self._send(engines.jobs.status())
         if path == "/state":
             # read-only resync endpoint: /state?game_id=xxx
             gid = parse_qs(urlparse(self.path).query).get("game_id", [""])[0]
-            game = e.get_game(gid)
+            e, game = engines.engine_for_game(gid)
             if game is None:
                 return self._send({"error": "unknown game"}, 404)
             with game.lock:
                 return self._send(e.snapshot(game, gid))
         if path != "/health":
             return self._send({"error": "not found"}, 404)
-        cfg = e.config
-        self._send({
-            "ok": True,
-            "model": f"gozero {cfg['env_id']} {cfg['channels']}ch x {cfg['blocks']}blk",
-            "iteration": e.iteration,
-            "board_size": e.size,
-            "queue": e.jobs.status(),
-        })
+        self._send(engines.health())
 
     def do_POST(self):
         try:
             return self._post()
         except QueueFull:
             return self._send(
-                {"error": "inference queue full", "queue": self.engine.jobs.status()},
+                {"error": "inference queue full", "queue": self.engines.jobs.status()},
                 503,
                 {"Retry-After": 5},
             )
@@ -492,7 +551,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _submit(self, operation: str, req: dict, work):
         request_id = self._request_id(req)
-        job, _ = self.engine.jobs.submit(
+        job, _ = self.engines.jobs.submit(
             operation,
             work,
             request_id=request_id,
@@ -503,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
         if request_id is None:
             # 已安裝的舊版 App 不認得 202 job envelope。讓它仍走同一個有界
             # worker pool，但在 handler 端代為等待並回傳舊的 GameState 格式。
-            view = self.engine.jobs.wait(job.id, timeout=55)
+            view = self.engines.jobs.wait(job.id, timeout=55)
             if view and view["status"] == "completed":
                 return self._send(view["result"])
             if view and view["status"] == "failed":
@@ -517,7 +576,7 @@ class Handler(BaseHTTPRequestHandler):
                 {"Retry-After": 5},
             )
         return self._send(
-            self.engine.jobs.view(job.id),
+            self.engines.jobs.view(job.id),
             202,
             {"Location": f"/jobs/{job.id}"},
         )
@@ -526,9 +585,10 @@ class Handler(BaseHTTPRequestHandler):
         req, sent = self._read_json()
         if sent:
             return
-        e = self.engine
+        engines = self.engines
 
         if self.path == "/new":
+            e = engines.engine_for_size(req.get("board_size"))
             level = req.get("level", "normal")
             human = req.get("human_color", "black")
             try:
@@ -559,7 +619,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._submit("new", req, new_game)
 
         gid = req.get("game_id", "")
-        game = e.get_game(gid)
+        e, game = engines.engine_for_game(gid)
         if game is None:
             return self._send({"error": "unknown game"}, 404)
 
@@ -630,23 +690,48 @@ class Server(ThreadingHTTPServer):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--ckpt", required=True)
+    p.add_argument(
+        "--ckpt",
+        required=True,
+        action="append",
+        help="checkpoint path; repeat to serve multiple board sizes",
+    )
     p.add_argument("--host", default="127.0.0.1",
                    help="interface to bind (use 0.0.0.0 inside Docker)")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--state-file", default=None,
-                   help="games survive restarts here (default: <ckpt dir>/app_games.json)")
+                   help="default-board games survive restarts here")
+    p.add_argument(
+        "--state-dir",
+        default=None,
+        help="directory for additional app_games_<size>.json state files",
+    )
     args = p.parse_args()
-    state_file = args.state_file or os.path.join(os.path.dirname(args.ckpt), "app_games.json")
-    print(f"loading {args.ckpt} ...", flush=True)
-    Handler.engine = Engine(args.ckpt)
-    Handler.engine.load_games(state_file)
+    Handler.engines = EnginePool(args.ckpt)
+
+    state_files: dict[int, str] = {}
+    for size, engine in Handler.engines.engines.items():
+        if size == Handler.engines.default_size and args.state_file:
+            path = args.state_file
+        elif args.state_dir:
+            path = os.path.join(args.state_dir, f"app_games_{size}.json")
+        else:
+            path = os.path.join(
+                os.path.dirname(Handler.engines.ckpt_paths[size]),
+                "app_games.json",
+            )
+        state_files[size] = path
+        engine.load_games(path)
+
+    def save_all_games():
+        for size, engine in Handler.engines.engines.items():
+            engine.save_games(state_files[size])
 
     def save_and_exit(signum=None, frame=None):
-        Handler.engine.save_games(state_file)
+        save_all_games()
         raise SystemExit(0)
 
-    atexit.register(lambda: Handler.engine.save_games(state_file))
+    atexit.register(save_all_games)
     signal.signal(signal.SIGTERM, save_and_exit)
     signal.signal(signal.SIGINT, save_and_exit)
 
@@ -655,13 +740,17 @@ def main():
         while True:
             time.sleep(SAVE_INTERVAL)
             try:
-                Handler.engine.save_games(state_file)
+                save_all_games()
             except Exception:
                 traceback.print_exc()
 
     threading.Thread(target=autosave, daemon=True, name="autosave").start()
-    print(f"engine ready (iteration {Handler.engine.iteration}), "
-          f"serving on http://{args.host}:{args.port}", flush=True)
+    ready = ", ".join(
+        f"{size}x{size} iteration {engine.iteration}"
+        for size, engine in sorted(Handler.engines.engines.items())
+    )
+    print(f"engines ready ({ready}), serving on http://{args.host}:{args.port}",
+          flush=True)
     Server((args.host, args.port), Handler).serve_forever()
 
 

@@ -25,18 +25,19 @@ def queue_payload():
     }
 
 
-def game_payload():
+def game_payload(size=19):
+    area = size * size
     return {
         "game_id": "012345abcdef",
-        "board": [0] * 360 + [1],
-        "size": 19,
+        "board": [0] * (area - 1) + [1],
+        "size": size,
         "to_move": "white",
         "human_color": "white",
         "moves": 1,
-        "history": [360],
-        "last_move": 360,
-        "ai_move": 360,
-        "legal": [1] * 362,
+        "history": [area - 1],
+        "last_move": area - 1,
+        "ai_move": area - 1,
+        "legal": [1] * (area + 1),
         "black_winrate": 0.51,
         "winrates": [0.5, 0.51],
         "captures": {"black": 0, "white": 0},
@@ -50,6 +51,7 @@ def game_payload():
 
 class FakeGoZeroHandler(BaseHTTPRequestHandler):
     job_id = "a" * 32
+    board_size = 19
 
     def log_message(self, _format, *_args):
         pass
@@ -72,6 +74,19 @@ class FakeGoZeroHandler(BaseHTTPRequestHandler):
                     "model": "gozero go_19x19 192ch x 12blk",
                     "iteration": 1000,
                     "board_size": 19,
+                    "board_sizes": [9, 19],
+                    "models": [
+                        {
+                            "model": "gozero go_9x9 192ch x 12blk",
+                            "iteration": 4628,
+                            "board_size": 9,
+                        },
+                        {
+                            "model": "gozero go_19x19 192ch x 12blk",
+                            "iteration": 1000,
+                            "board_size": 19,
+                        },
+                    ],
                     "queue": queue_payload(),
                 }
             )
@@ -79,10 +94,14 @@ class FakeGoZeroHandler(BaseHTTPRequestHandler):
             return self.send_json(queue_payload())
         if self.path == f"/jobs/{self.job_id}":
             return self.send_json(
-                {"job_id": self.job_id, "status": "completed", "result": game_payload()}
+                {
+                    "job_id": self.job_id,
+                    "status": "completed",
+                    "result": game_payload(type(self).board_size),
+                }
             )
         if self.path.startswith("/state?game_id="):
-            state = game_payload()
+            state = game_payload(type(self).board_size)
             state["ai_move"] = None
             return self.send_json(state)
         return self.send_json({"error": "not found"}, 404)
@@ -95,13 +114,14 @@ class FakeGoZeroHandler(BaseHTTPRequestHandler):
                 "Idempotency-Key"
             ):
                 return self.send_json({"error": "bad new request"}, 400)
+            type(self).board_size = payload.get("board_size")
             return self.send_json(
                 {"job_id": self.job_id, "status": "queued", "queue_position": 1},
                 202,
                 {"location": f"/jobs/{self.job_id}"},
             )
         if self.path == "/resign":
-            resigned = game_payload()
+            resigned = game_payload(type(self).board_size)
             resigned["game_over"] = True
             resigned["result"] = {
                 "winner": "black",
@@ -132,6 +152,26 @@ class ServerSmokeValidationTest(unittest.TestCase):
         self.assertEqual(result["iteration"], 1000)
         self.assertEqual(result["ai_move"], 360)
 
+    def test_full_http_smoke_flow_9x9(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FakeGoZeroHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = smoke_test(
+                f"http://127.0.0.1:{server.server_port}",
+                expected_model="gozero go_9x9 192ch x 12blk",
+                expected_iteration=4628,
+                expected_board_size=9,
+                timeout=2,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(2)
+        self.assertEqual(result["iteration"], 4628)
+        self.assertEqual(result["board_size"], 9)
+        self.assertEqual(result["ai_move"], 80)
+
     def test_accepts_expected_health_queue_and_game(self):
         health = {
             "ok": True,
@@ -151,6 +191,34 @@ class ServerSmokeValidationTest(unittest.TestCase):
             expected_board_size=19,
             expected_human_color="white",
             require_ai_move=True,
+        )
+
+    def test_selects_9x9_identity_from_dual_model_health(self):
+        health = {
+            "ok": True,
+            "model": "gozero go_19x19 192ch x 12blk",
+            "iteration": 1000,
+            "board_size": 19,
+            "board_sizes": [9, 19],
+            "models": [
+                {
+                    "model": "gozero go_9x9 192ch x 12blk",
+                    "iteration": 4628,
+                    "board_size": 9,
+                },
+                {
+                    "model": "gozero go_19x19 192ch x 12blk",
+                    "iteration": 1000,
+                    "board_size": 19,
+                },
+            ],
+            "queue": queue_payload(),
+        }
+        _validate_health(
+            health,
+            expected_model="gozero go_9x9 192ch x 12blk",
+            expected_iteration=4628,
+            expected_board_size=9,
         )
 
     def test_rejects_wrong_board_size(self):

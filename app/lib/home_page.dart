@@ -228,7 +228,8 @@ class _HomePageState extends State<HomePage> {
                     Text(
                       info == null
                           ? '正在連線引擎…'
-                          : '引擎已連線 · ${info!.model} · 迭代 ${info!.iteration}',
+                          : '引擎已連線 · ${info!.boardSizes.join('／')} 路'
+                                ' · 主模型迭代 ${info!.iteration}',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Sumi.paperDim,

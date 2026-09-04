@@ -91,16 +91,29 @@ def _validate_health(
     expected_iteration: int,
     expected_board_size: int,
 ) -> None:
+    if health.get("ok") is not True:
+        raise SmokeError(f"health is not ok: {health.get('ok')}")
+    identity = health
+    models = health.get("models")
+    if isinstance(models, list):
+        identity = next(
+            (
+                model
+                for model in models
+                if isinstance(model, dict)
+                and model.get("board_size") == expected_board_size
+            ),
+            {},
+        )
     expected = {
-        "ok": True,
         "model": expected_model,
         "iteration": expected_iteration,
         "board_size": expected_board_size,
     }
     wrong = {
-        key: {"expected": value, "actual": health.get(key)}
+        key: {"expected": value, "actual": identity.get(key)}
         for key, value in expected.items()
-        if health.get(key) != value
+        if identity.get(key) != value
     }
     if wrong:
         raise SmokeError(f"deployed model identity mismatch: {wrong}")
@@ -198,6 +211,7 @@ def smoke_test(
             "human_color": "white",
             "komi": 7.5,
             "handicap": 0,
+            "board_size": expected_board_size,
             "request_id": request_id,
         },
         request_id=request_id,
@@ -244,10 +258,20 @@ def smoke_test(
     ):
         raise SmokeError("could not finish the deployment smoke-test game")
 
+    models = health.get("models")
+    identity = next(
+        (
+            model
+            for model in models
+            if isinstance(model, dict)
+            and model.get("board_size") == expected_board_size
+        ),
+        health,
+    ) if isinstance(models, list) else health
     return {
-        "model": health["model"],
-        "iteration": health["iteration"],
-        "board_size": health["board_size"],
+        "model": identity["model"],
+        "iteration": identity["iteration"],
+        "board_size": identity["board_size"],
         "game_id": game_id,
         "ai_move": game["ai_move"],
         "moves": game["moves"],

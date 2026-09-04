@@ -27,6 +27,30 @@ Map<String, dynamic> gameJson({int moves = 2, int size = 19}) => {
 };
 
 void main() {
+  test('new game sends the selected 9x9 board size', () async {
+    final client = MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/new');
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['board_size'], 9);
+      expect(body['level'], 'normal');
+      expect(body['human_color'], 'black');
+      return http.Response(jsonEncode(gameJson(moves: 0, size: 9)), 200);
+    });
+    final api = EngineApi(client: client);
+
+    final game = await api.newGame(
+      level: 'normal',
+      humanColor: 'black',
+      boardSize: 9,
+    );
+
+    expect(game.size, 9);
+    expect(game.board, hasLength(81));
+    expect(game.legal, hasLength(82));
+    api.close();
+  });
+
   test('202 job is polled and reports queue progress', () async {
     var pollCount = 0;
     final jobId = List.filled(32, 'a').join();

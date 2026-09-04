@@ -69,7 +69,8 @@ class GameState {
 class EngineInfo {
   final String model;
   final int iteration;
-  EngineInfo(this.model, this.iteration);
+  final List<int> boardSizes;
+  EngineInfo(this.model, this.iteration, this.boardSizes);
 }
 
 class QueueProgress {
@@ -231,12 +232,16 @@ class EngineApi {
         // 冷啟動的 TLS 握手 + 跨海往返，3 秒太緊（審查員在美國）
         .timeout(const Duration(seconds: 10));
     final j = jsonDecode(r.body);
-    return EngineInfo(j['model'], j['iteration']);
+    final sizes = j['board_sizes'] is List
+        ? List<int>.from(j['board_sizes'])
+        : <int>[(j['board_size'] as num?)?.toInt() ?? 19];
+    return EngineInfo(j['model'], j['iteration'], sizes);
   }
 
   Future<GameState> newGame({
     required String level,
     required String humanColor,
+    int boardSize = 19,
     double komi = 7.5,
     int handicap = 0,
     QueueProgressCallback? onQueueProgress,
@@ -244,6 +249,7 @@ class EngineApi {
     await _post('/new', {
       'level': level,
       'human_color': humanColor,
+      'board_size': boardSize,
       'komi': komi,
       'handicap': handicap,
     }, onQueueProgress: onQueueProgress),

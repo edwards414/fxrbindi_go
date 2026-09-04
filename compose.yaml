@@ -14,8 +14,22 @@ services:
       GOZERO_SEARCH_SLOTS: "${GOZERO_SEARCH_SLOTS:-4}"
       GOZERO_MAX_QUEUE: "${GOZERO_MAX_QUEUE:-64}"
       GOZERO_JOB_TTL: "${GOZERO_JOB_TTL:-900}"
+    command:
+      - --ckpt
+      - /models/19x19.pkl
+      - --ckpt
+      - /models/9x9.pkl
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8765"
+      - --state-file
+      - /data/app_games.json
+      - --state-dir
+      - /data
     volumes:
-      - ./runs/v5_19x19/latest.pkl:/models/latest.pkl:ro
+      - ./runs/v5_19x19/latest.pkl:/models/19x19.pkl:ro
+      - ./runs/v4/latest.pkl:/models/9x9.pkl:ro
       - gozero-server-data:/data
 
   # https://go.fxrbindi.com → gozero-server:8765

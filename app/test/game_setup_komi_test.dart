@@ -3,14 +3,42 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gozero_go/game_setup_page.dart';
 
 void main() {
-  Future<void> pumpSetup(WidgetTester tester) => tester.pumpWidget(
-    const MaterialApp(home: GameSetupPage()),
-  );
+  Future<void> pumpSetup(WidgetTester tester) =>
+      tester.pumpWidget(const MaterialApp(home: GameSetupPage()));
 
   testWidgets('貼目區塊常駐一行規則說明', (tester) async {
     await pumpSetup(tester);
+    expect(find.text('貼目是終局時加給白方的補償，用來抵銷黑棋先行之利'), findsOneWidget);
+  });
+
+  testWidgets('可在 19 路與 9 路棋盤之間切換', (tester) async {
+    await pumpSetup(tester);
+
+    expect(find.text('19 路 · 完整棋局'), findsOneWidget);
+    expect(find.text('9 路 · 快速對弈'), findsOneWidget);
     expect(
-      find.text('貼目是終局時加給白方的補償，用來抵銷黑棋先行之利'),
+      find.descendant(
+        of: find.byKey(const ValueKey('board-size-19')),
+        matching: find.byIcon(Icons.circle),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('9 路 · 快速對弈'));
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('board-size-9')),
+        matching: find.byIcon(Icons.circle),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('board-size-19')),
+        matching: find.byIcon(Icons.circle_outlined),
+      ),
       findsOneWidget,
     );
   });
@@ -19,6 +47,8 @@ void main() {
     await pumpSetup(tester);
     expect(find.text('關於貼目'), findsNothing);
 
+    await tester.ensureVisible(find.text('說明'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('說明'));
     await tester.pumpAndSettle();
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'home_page.dart';
 
-/// 玄石 GoZero — 與自研 Gumbel-AlphaZero 模型對弈的 19 路圍棋 app。
+/// 玄石 GoZero — 與自研 Gumbel-AlphaZero 模型對弈的 9／19 路圍棋 app。
 /// 引擎後端: gozero/server.py (http://127.0.0.1:8765，模擬器與主機共用網路)
 void main() => runApp(const GoZeroApp());
 

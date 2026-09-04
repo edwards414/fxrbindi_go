@@ -45,6 +45,7 @@ class _GameSetupPageState extends State<GameSetupPage> {
   // 記住本次 app 存活期間最後一次的選擇，重進設定頁不用重選。
   static String _lastLevel = 'normal';
   static String _lastColor = 'black';
+  static int _lastBoardSize = 19;
   static double _lastKomi = 7.5;
   static int _lastHandicap = 0;
 
@@ -52,6 +53,7 @@ class _GameSetupPageState extends State<GameSetupPage> {
 
   late String level = _lastLevel;
   late String humanColor = _lastColor;
+  late int boardSize = _lastBoardSize;
   late int handicap = _lastHandicap;
   late bool customKomi = !komiPresets.contains(_lastKomi);
   late double komi = _lastKomi;
@@ -73,11 +75,12 @@ class _GameSetupPageState extends State<GameSetupPage> {
   double? _resolveKomi() {
     if (!customKomi) return komi;
     final v = double.tryParse(komiCtrl.text.trim());
+    final maxKomi = boardSize * boardSize;
     if (v == null ||
         (v * 2) != (v * 2).roundToDouble() ||
-        v < -361 ||
-        v > 361) {
-      setState(() => komiError = '請輸入 -361 到 361 之間、以 0.5 為單位的貼目');
+        v < -maxKomi ||
+        v > maxKomi) {
+      setState(() => komiError = '請輸入 -$maxKomi 到 $maxKomi 之間、以 0.5 為單位的貼目');
       return null;
     }
     return v;
@@ -104,6 +107,29 @@ class _GameSetupPageState extends State<GameSetupPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SizedBox(height: 16),
+                  _section('棋盤', [
+                    _choice(
+                      '19 路 · 完整棋局',
+                      '19',
+                      '$boardSize',
+                      (v) => setState(() {
+                        boardSize = int.parse(v);
+                        komiError = null;
+                      }),
+                      key: const ValueKey('board-size-19'),
+                    ),
+                    _choice(
+                      '9 路 · 快速對弈',
+                      '9',
+                      '$boardSize',
+                      (v) => setState(() {
+                        boardSize = int.parse(v);
+                        komiError = null;
+                      }),
+                      key: const ValueKey('board-size-9'),
+                    ),
+                  ]),
+                  const SizedBox(height: 18),
                   _section('執子', [
                     _choice(
                       '執黑（先行）',
@@ -236,6 +262,7 @@ class _GameSetupPageState extends State<GameSetupPage> {
                       if (resolvedKomi == null) return;
                       _lastLevel = level;
                       _lastColor = humanColor;
+                      _lastBoardSize = boardSize;
                       _lastKomi = resolvedKomi;
                       _lastHandicap = handicap;
                       Navigator.push(
@@ -244,6 +271,7 @@ class _GameSetupPageState extends State<GameSetupPage> {
                           builder: (_) => GamePage(
                             level: level,
                             humanColor: humanColor,
+                            boardSize: boardSize,
                             komi: resolvedKomi,
                             handicap: handicap,
                           ),
@@ -384,10 +412,12 @@ class _GameSetupPageState extends State<GameSetupPage> {
     String label,
     String value,
     String group,
-    ValueChanged<String> onTap,
-  ) {
+    ValueChanged<String> onTap, {
+    Key? key,
+  }) {
     final selected = value == group;
     return GestureDetector(
+      key: key,
       onTap: () => onTap(value),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),

@@ -1,6 +1,6 @@
 # gozero — Gumbel-AlphaZero Go on H100
 
-自研 19 路圍棋 AI 訓練系統。整條管線（棋盤規則、MCTS、神經網路）都是
+自研 9／19 路圍棋 AI 訓練系統。整條管線（棋盤規則、MCTS、神經網路）都是
 jitted JAX 程式碼，自對弈完全在 GPU 上向量化執行。
 
 ## 相對 AlphaGo Zero (2017) 的架構改進
@@ -60,12 +60,13 @@ python -m gozero.evaluate --ckpt new.pkl --vs-ckpt old.pkl --sims 32 --opp-sims 
 
 ## iPhone App（Flutter，`app/`）
 
-「玄石」— 19 路對弈 app（墨×原木×宣紙風格），內建模型性能頁。引擎跑在 Mac 上，
+「玄石」— 可切換 9／19 路的對弈 app（墨×原木×宣紙風格），內建模型性能頁。引擎跑在 Mac 上，
 模擬器透過 localhost 連線:
 
 ```bash
-# 1. 啟動引擎伺服器（首次啟動會 JIT 編譯三檔強度，約 40 秒）
-JAX_PLATFORMS=cpu .venv/bin/python -m gozero.server --ckpt runs/v5_19x19/latest.pkl --port 8765
+# 1. 啟動雙模型伺服器（首次啟動會分別 JIT 三檔強度）
+JAX_PLATFORMS=cpu .venv/bin/python -m gozero.server \
+  --ckpt runs/v5_19x19/latest.pkl --ckpt runs/v4/latest.pkl --port 8765
 
 # 2. 跑 app（iPhone 17 模擬器）
 cd app && flutter run -d "iPhone 17"
@@ -86,9 +87,12 @@ docker build -t gozero-server .
 # 啟動 server
 docker run --rm \
   -p 8765:8765 \
-  -v "$PWD/runs/v5_19x19/latest.pkl:/models/latest.pkl:ro" \
+  -v "$PWD/runs/v5_19x19/latest.pkl:/models/19x19.pkl:ro" \
+  -v "$PWD/runs/v4/latest.pkl:/models/9x9.pkl:ro" \
   -v gozero-server-data:/data \
-  gozero-server
+  gozero-server \
+  --ckpt /models/19x19.pkl --ckpt /models/9x9.pkl \
+  --host 0.0.0.0 --port 8765 --state-file /data/app_games.json --state-dir /data
 
 # 或用 compose
 docker compose up --build
@@ -130,7 +134,7 @@ Docker image 建置；全部成功後才以 SSH fast-forward 正式主機並執�
 - `DEPLOY_KNOWN_HOSTS`
 
 部署腳本會忽略格式不屬於 Compose 的本機 `.env`、重建服務，並等待 `/health`
-成功。19 路模型首次 CPU JIT 最多允許 15 分鐘；逾時會輸出容器狀態與引擎
+成功。雙模型首次 CPU JIT 最多允許 20 分鐘；逾時會輸出容器狀態與引擎
 log，讓 workflow 明確失敗。
 只需執行 Server CI 而不重啟 production 時，可在 commit 訊息加上 `[no-deploy]`。
 

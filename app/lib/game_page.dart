@@ -11,6 +11,7 @@ import 'winrate_curve.dart';
 class GamePage extends StatefulWidget {
   final String level;
   final String humanColor;
+  final int boardSize;
   final double komi;
   final int handicap;
   final bool autoDemo; // 展示模式：自動下幾手（僅 autodemo 鉤子使用）
@@ -18,6 +19,7 @@ class GamePage extends StatefulWidget {
     super.key,
     required this.level,
     required this.humanColor,
+    this.boardSize = 19,
     this.komi = 7.5,
     this.handicap = 0,
     this.autoDemo = false,
@@ -169,6 +171,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
     () => api.newGame(
       level: widget.level,
       humanColor: widget.humanColor,
+      boardSize: widget.boardSize,
       komi: widget.komi,
       handicap: widget.handicap,
       onQueueProgress: _onQueueProgress,
@@ -295,7 +298,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
       appBar: AppBar(
         backgroundColor: Sumi.bg,
         title: Text(
-          '對弈 · ${levelNames[widget.level]}'
+          '對弈 · ${widget.boardSize}路 · ${levelNames[widget.level]}'
           '${widget.handicap > 0 ? ' · 讓${widget.handicap}子' : ''}',
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
         ),
