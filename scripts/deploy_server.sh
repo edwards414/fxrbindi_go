@@ -17,12 +17,17 @@ command -v git >/dev/null
 command -v python3 >/dev/null
 command -v sha256sum >/dev/null
 
-# A normal Git checkout may leave an LFS pointer in place of the 106 MB model.
-# Pull it explicitly and fail before replacing the healthy container if either
-# the binary or its release checksum is incomplete.
-git lfs version >/dev/null
-git lfs install --local >/dev/null
-git lfs pull --include="$model_path" --exclude=""
+# A normal Git checkout may leave an LFS pointer in place of the model. CI
+# uploads the verified binary before calling this script; interactive deploys
+# may still resolve the pointer locally when git-lfs is installed.
+if grep -q '^version https://git-lfs.github.com/spec/v1$' "$model_path"; then
+  if ! git lfs version >/dev/null 2>&1; then
+    echo "19x19 checkpoint is an LFS pointer and git-lfs is unavailable: $model_path" >&2
+    exit 1
+  fi
+  git lfs install --local >/dev/null
+  git lfs pull --include="$model_path" --exclude=""
+fi
 if [[ ! -s "$model_path" ]] || grep -q '^version https://git-lfs.github.com/spec/v1$' "$model_path"; then
   echo "19x19 checkpoint is missing or is still a Git LFS pointer: $model_path" >&2
   exit 1

@@ -69,6 +69,20 @@ jobs:
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Verify deployment checkpoint
+        shell: bash
+        run: |
+          cd runs/v5_19x19
+          sha256sum -c latest.pkl.sha256
+          if grep -q '^version https://git-lfs.github.com/spec/v1$' latest.pkl; then
+            echo "Git LFS checkpoint was not downloaded" >&2
+            exit 1
+          fi
+
       - name: Validate deployment secrets
         shell: bash
         run: |
@@ -87,6 +101,14 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
 
+      - name: Transfer verified checkpoint
+        shell: bash
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            runs/v5_19x19/latest.pkl \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.latest.pkl.ci-upload"
+
       - name: Fast-forward and deploy
         shell: bash
         run: |
@@ -99,5 +121,14 @@ jobs:
           git fetch origin main
           git checkout main
           git merge --ff-only origin/main
+          upload_path="$1/.latest.pkl.ci-upload"
+          model_path="$1/runs/v5_19x19/latest.pkl"
+          expected="$(awk '{print $1}' "$1/runs/v5_19x19/latest.pkl.sha256")"
+          actual="$(sha256sum "$upload_path" | awk '{print $1}')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "uploaded checkpoint checksum mismatch" >&2
+            exit 1
+          fi
+          mv "$upload_path" "$model_path"
           scripts/deploy_server.sh
           REMOTE
