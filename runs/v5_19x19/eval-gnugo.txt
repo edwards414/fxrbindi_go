@@ -1,0 +1,68 @@
+===== eval-gnugo-gpu0.txt =====
+nohup: ignoring input
+game 1/4 as black: win (258 plies)
+game 2/4 as white: win (273 plies)
+game 3/4 as black: win (284 plies)
+game 4/4 as white: win (301 plies)
+
+result: 4W 0L 0D / 4  (100.0% wins)
+
+===== eval-gnugo-gpu1.txt =====
+nohup: ignoring input
+game 1/4 as black: win (258 plies)
+game 2/4 as white: win (279 plies)
+game 3/4 as black: win (278 plies)
+game 4/4 as white: win (321 plies)
+
+result: 4W 0L 0D / 4  (100.0% wins)
+
+===== eval-gnugo-gpu2.txt =====
+nohup: ignoring input
+game 1/4 as black: win (214 plies)
+game 2/4 as white: win (301 plies)
+game 3/4 as black: win (298 plies)
+game 4/4 as white: win (273 plies)
+
+result: 4W 0L 0D / 4  (100.0% wins)
+
+===== eval-gnugo-gpu3.txt =====
+game 1/4 as black: win (276 plies)
+2026-09-03 21:23:39.599633: E external/xla/xla/service/slow_operation_alarm.cc:73]
+********************************
+[Compiling module jit_cond] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+2026-09-03 21:26:35.931165: E external/xla/xla/service/slow_operation_alarm.cc:140] The operation took 4m56.345799227s
+
+********************************
+[Compiling module jit_cond] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+game 2/4 as white: win (184 plies)
+game 3/4 as black: win (294 plies)
+game 4/4 as white: win (227 plies)
+
+result: 4W 0L 0D / 4  (100.0% wins)
+
+===== eval-gnugo-gpu6.txt =====
+nohup: ignoring input
+game 1/2 as black: win (282 plies)
+game 2/2 as white: win (243 plies)
+
+result: 2W 0L 0D / 2  (100.0% wins)
+
+===== eval-gnugo-gpu7.txt =====
+game 1/2 as black: win (292 plies)
+2026-09-03 21:23:39.599632: E external/xla/xla/service/slow_operation_alarm.cc:73]
+********************************
+[Compiling module jit_cond] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+2026-09-03 21:26:35.951202: E external/xla/xla/service/slow_operation_alarm.cc:140] The operation took 4m56.365831809s
+
+********************************
+[Compiling module jit_cond] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+game 2/2 as white: win (295 plies)
+
+result: 2W 0L 0D / 2  (100.0% wins)
+
+===== aggregate =====
+result: 20W 0L 0D / 20  (100.0% wins)

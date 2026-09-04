@@ -1,0 +1,56 @@
+nohup: ignoring input
+nohup: ignoring input
+nohup: ignoring input
+nohup: ignoring input
+result: 256W 0L 0D / 256  (100.0% wins)
+scripts/finalize_h100_training.sh: line 134: 64960 Killed                  env CUDA_VISIBLE_DEVICES="$eval_gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 "$python_bin" -m gozero.evaluate --ckpt "$run_dir/latest.pkl" --games "$games" --sims 128 --max-plies 722 --seed "$((4200 + index))" --vs-gtp "/usr/games/gnugo --mode gtp --boardsize 19 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead" > "$shard" 2>&1
+scripts/finalize_h100_training.sh: line 134: 64964 Killed                  env CUDA_VISIBLE_DEVICES="$eval_gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 "$python_bin" -m gozero.evaluate --ckpt "$run_dir/latest.pkl" --games "$games" --sims 128 --max-plies 722 --seed "$((4200 + index))" --vs-gtp "/usr/games/gnugo --mode gtp --boardsize 19 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead" > "$shard" 2>&1
+one or more parallel GNU Go evaluation shards failed
+===== /home/gozero19/runs/v5_19x19/eval-gnugo-gpu0.txt =====
+nohup: ignoring input
+game 1/4 as black: win (258 plies)
+game 2/4 as white: win (273 plies)
+===== /home/gozero19/runs/v5_19x19/eval-gnugo-gpu1.txt =====
+nohup: ignoring input
+===== /home/gozero19/runs/v5_19x19/eval-gnugo-gpu2.txt =====
+===== /home/gozero19/runs/v5_19x19/eval-gnugo-gpu3.txt =====
+game 1/4 as black: win (276 plies)
+2026-09-03 21:23:39.599633: E external/xla/xla/service/slow_operation_alarm.cc:73]
+********************************
+[Compiling module jit_cond] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+2026-09-03 21:26:35.931165: E external/xla/xla/service/slow_operation_alarm.cc:140] The operation took 4m56.345799227s
+
+********************************
+[Compiling module jit_cond] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+game 2/4 as white: win (184 plies)
+game 3/4 as black: win (294 plies)
+game 4/4 as white: win (227 plies)
+
+result: 4W 0L 0D / 4  (100.0% wins)
+===== /home/gozero19/runs/v5_19x19/eval-gnugo-gpu6.txt =====
+nohup: ignoring input
+game 1/2 as black: win (282 plies)
+game 2/2 as white: win (243 plies)
+
+result: 2W 0L 0D / 2  (100.0% wins)
+===== /home/gozero19/runs/v5_19x19/eval-gnugo-gpu7.txt =====
+game 1/2 as black: win (292 plies)
+2026-09-03 21:23:39.599632: E external/xla/xla/service/slow_operation_alarm.cc:73]
+********************************
+[Compiling module jit_cond] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+2026-09-03 21:26:35.951202: E external/xla/xla/service/slow_operation_alarm.cc:140] The operation took 4m56.365831809s
+
+********************************
+[Compiling module jit_cond] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+game 2/2 as white: win (295 plies)
+
+result: 2W 0L 0D / 2  (100.0% wins)
+
+RECOVERY 2026-09-03T21:57:00Z: resumed GNU Go evaluation in RAM-safe batches
+result: 20W 0L 0D / 20  (100.0% wins)
+latency={"0":6,"32":58,"128":226}
+release marker published

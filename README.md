@@ -72,7 +72,7 @@ cd app && flutter run -d "iPhone 17"
 ```
 
 強度三檔對應 MCTS 模擬數 0 / 32 / 128。性能頁資料由
-`scripts/gen_app_stats.py` 從 `runs/v1/metrics.jsonl` 與評測結果生成。
+`scripts/gen_app_stats.py` 從 `runs/v5_19x19/metrics.jsonl` 與評測結果生成。
 
 ## Docker 啟動引擎伺服器
 

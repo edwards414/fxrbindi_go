@@ -1,0 +1,5 @@
+release ready at 2026-09-03T21:58:28Z
+iteration=1000
+random_win=100.0
+gnugo_win=100.0
+latency={"0":6,"32":58,"128":226}
