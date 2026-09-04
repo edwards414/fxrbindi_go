@@ -98,7 +98,7 @@ class FakeGoZeroHandler(BaseHTTPRequestHandler):
             return self.send_json(
                 {"job_id": self.job_id, "status": "queued", "queue_position": 1},
                 202,
-                {"Location": f"/jobs/{self.job_id}"},
+                {"location": f"/jobs/{self.job_id}"},
             )
         if self.path == "/resign":
             resigned = game_payload()

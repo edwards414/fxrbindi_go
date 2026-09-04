@@ -54,7 +54,9 @@ def _request_json(
             raise SmokeError(f"{request.method} {path} returned invalid JSON") from exc
         if not isinstance(decoded, dict):
             raise SmokeError(f"{request.method} {path} did not return a JSON object")
-        return response.status, decoded, dict(response.headers.items())
+        return response.status, decoded, {
+            name.lower(): value for name, value in response.headers.items()
+        }
 
 
 def _validate_queue(queue: Any) -> None:
@@ -203,8 +205,8 @@ def smoke_test(
     if status != 202:
         raise SmokeError(f"queued /new returned HTTP {status}")
     job_id = initial.get("job_id")
-    if headers.get("Location") != f"/jobs/{job_id}":
-        raise SmokeError(f"queued /new returned wrong Location: {headers.get('Location')}")
+    if headers.get("location") != f"/jobs/{job_id}":
+        raise SmokeError(f"queued /new returned wrong Location: {headers.get('location')}")
     game = _wait_for_job(base_url, initial, deadline=time.monotonic() + timeout)
     _validate_game(
         game,
