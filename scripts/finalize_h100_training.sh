@@ -13,6 +13,12 @@ run_dir="$repo_dir/runs/v5_19x19"
 python_bin="${GOZERO_PYTHON:-/home/go_ai/.venv-gozero/bin/python}"
 gpu="${GOZERO_FINALIZE_GPU:-0}"
 train_gpus="${GOZERO_TRAIN_GPUS:-0,1,2,3,4,6,7}"
+gnu_max_parallel="${GOZERO_GNU_MAX_PARALLEL:-3}"
+
+if [[ ! "$gnu_max_parallel" =~ ^[1-9][0-9]*$ ]]; then
+  echo "GOZERO_GNU_MAX_PARALLEL must be a positive integer" >&2
+  exit 2
+fi
 
 cd "$repo_dir"
 last_iteration() {
@@ -80,6 +86,7 @@ for index in "${!eval_gpus[@]}"; do
   shard="$run_dir/eval-random-gpu${eval_gpu}.txt"
   random_files+=("$shard")
   env CUDA_VISIBLE_DEVICES="$eval_gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
+    JAX_COMPILATION_CACHE_DIR="$repo_dir/.jax_cache" \
     "$python_bin" -m gozero.evaluate \
     --ckpt "$run_dir/latest.pkl" --vs-random \
     --games "$games" --sims 32 --seed "$((2400 + index))" \
@@ -107,10 +114,22 @@ fi
 # GNU Go mode is sequential within one process. Split the 20 games into
 # black/white pairs across every H100 that completed training, preserving an
 # exactly balanced colour assignment while cutting the wall-clock gate time.
+# Limit concurrent JAX processes because each 19x19/sims-128 evaluator also
+# consumes substantial host RAM while compiling, independently of GPU memory.
 pair_base=$((10 / ${#eval_gpus[@]}))
 pair_extra=$((10 % ${#eval_gpus[@]}))
 eval_pids=()
 eval_files=()
+eval_failed=0
+wait_gnu_batch() {
+  local eval_pid
+  for eval_pid in "${eval_pids[@]}"; do
+    if ! wait "$eval_pid"; then
+      eval_failed=1
+    fi
+  done
+  eval_pids=()
+}
 for index in "${!eval_gpus[@]}"; do
   pairs="$pair_base"
   if (( index < pair_extra )); then
@@ -122,19 +141,18 @@ for index in "${!eval_gpus[@]}"; do
   shard="$run_dir/eval-gnugo-gpu${eval_gpu}.txt"
   eval_files+=("$shard")
   env CUDA_VISIBLE_DEVICES="$eval_gpu" XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
+    JAX_COMPILATION_CACHE_DIR="$repo_dir/.jax_cache" \
     "$python_bin" -m gozero.evaluate \
     --ckpt "$run_dir/latest.pkl" --games "$games" --sims 128 \
     --max-plies 722 --seed "$((4200 + index))" \
     --vs-gtp "/usr/games/gnugo --mode gtp --boardsize 19 --komi 7.5 --chinese-rules --level 10 --play-out-aftermath --capture-all-dead" \
     > "$shard" 2>&1 &
   eval_pids+=("$!")
-done
-eval_failed=0
-for eval_pid in "${eval_pids[@]}"; do
-  if ! wait "$eval_pid"; then
-    eval_failed=1
+  if (( ${#eval_pids[@]} >= gnu_max_parallel )); then
+    wait_gnu_batch
   fi
 done
+wait_gnu_batch
 if (( eval_failed )); then
   echo "one or more parallel GNU Go evaluation shards failed" >&2
   for shard in "${eval_files[@]}"; do
