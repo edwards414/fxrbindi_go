@@ -9,7 +9,6 @@ import 'game_page.dart';
 import 'game_setup_page.dart';
 import 'history_page.dart';
 import 'main.dart';
-import 'stats_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -29,7 +28,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _ping();
     // 展示/驗證用鉤子：從 Mac 寫入本 app 容器 Documents/autodemo.txt
-    // （內容 game / stats），啟動即自動導頁；讀後即刪。
+    // （內容 game / setup / history），啟動即自動導頁；讀後即刪。
     //
     // 只在 debug build 生效。正式版若留著，等於 app 內有一條未公開的隱藏行為，
     // 會踩到 App Review Guideline 2.3.1（不得包含未在審查中揭露的功能）。
@@ -61,16 +60,6 @@ class _HomePageState extends State<HomePage> {
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const HistoryPage()),
-        );
-      } else if (mode.startsWith('stats')) {
-        // 'stats' 或 'stats-scroll:0.45'（捲到頁高的 45%）
-        final parts = mode.split(':');
-        final frac = parts.length > 1 ? double.tryParse(parts[1]) ?? 0.0 : 0.0;
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => StatsPage(autoScrollFraction: frac),
-          ),
         );
       }
     });
@@ -174,42 +163,14 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          style: _secondaryButtonStyle(),
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const HistoryPage(),
-                            ),
-                          ),
-                          icon: const SealGlyph('錄', size: 22, fontSize: 13),
-                          label: const Text(
-                            '對戰紀錄',
-                            style: TextStyle(fontSize: 16),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          style: _secondaryButtonStyle(),
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const StatsPage(),
-                            ),
-                          ),
-                          icon: const SealGlyph('能', size: 22, fontSize: 13),
-                          label: const Text(
-                            '模型性能',
-                            style: TextStyle(fontSize: 16),
-                          ),
-                        ),
-                      ),
-                    ],
+                  OutlinedButton.icon(
+                    style: _secondaryButtonStyle(),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const HistoryPage()),
+                    ),
+                    icon: const SealGlyph('錄', size: 22, fontSize: 13),
+                    label: const Text('對戰紀錄', style: TextStyle(fontSize: 16)),
                   ),
                   const SizedBox(height: 20),
                   if (engineError != null)

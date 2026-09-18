@@ -33,8 +33,7 @@ SHOTS=(
   "01_home::4"
   "02_setup:setup:4"
   "03_game:game:12"
-  "04_stats:stats:5"
-  "05_history:history:4"
+  "04_history:history:4"
 )
 
 for entry in "${SHOTS[@]}"; do
