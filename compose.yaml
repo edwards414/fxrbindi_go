@@ -3,6 +3,12 @@ services:
     build: .
     image: gozero-server:latest
     restart: unless-stopped
+    # 容器加固：不需要任何 Linux capability，也不准提權；限制 pid 數避免 fork 炸彈
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
     # 只綁 loopback：對外一律走 cloudflared，公網不需要任何 port forwarding。
     # 本機除錯時 curl 127.0.0.1:8765 仍然通。
     ports:
@@ -14,6 +20,13 @@ services:
       GOZERO_SEARCH_SLOTS: "${GOZERO_SEARCH_SLOTS:-4}"
       GOZERO_MAX_QUEUE: "${GOZERO_MAX_QUEUE:-64}"
       GOZERO_JOB_TTL: "${GOZERO_JOB_TTL:-900}"
+      # 體力（每人 / 每 IP）、悔棋與連線數上限；預設值見 README
+      GOZERO_STAMINA_MAX: "${GOZERO_STAMINA_MAX:-24}"
+      GOZERO_STAMINA_REGEN_SECONDS: "${GOZERO_STAMINA_REGEN_SECONDS:-3600}"
+      GOZERO_IP_STAMINA_MAX: "${GOZERO_IP_STAMINA_MAX:-72}"
+      GOZERO_IP_STAMINA_REGEN_SECONDS: "${GOZERO_IP_STAMINA_REGEN_SECONDS:-1200}"
+      GOZERO_MAX_UNDOS: "${GOZERO_MAX_UNDOS:-3}"
+      GOZERO_MAX_CONNECTIONS: "${GOZERO_MAX_CONNECTIONS:-256}"
     command:
       - --ckpt
       - /models/19x19.pkl
@@ -37,6 +50,10 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     command: tunnel --config /etc/cloudflared/config.yml run
     # 映像預設跑 uid 65532，讀不到 ~/.cloudflared（700）底下 600 的憑證；
     # 改用憑證擁有者的 uid，憑證就不必放寬成全域可讀。

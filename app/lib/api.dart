@@ -38,6 +38,9 @@ class GameState {
   final double? margin;
   final double komi;
   final int handicap;
+  final int undoLimit; // 每局可悔棋次數（伺服器決定）
+  final int undosLeft;
+  final StaminaInfo? stamina; // 只有 /new 的回應會帶
 
   GameState.fromJson(Map<String, dynamic> j)
     : gameId = j['game_id'],
@@ -61,9 +64,66 @@ class GameState {
       winReason = j['result']?['reason'],
       margin = (j['result']?['margin'] as num?)?.toDouble(),
       komi = (j['komi'] as num).toDouble(),
-      handicap = (j['handicap'] as num?)?.toInt() ?? 0;
+      handicap = (j['handicap'] as num?)?.toInt() ?? 0,
+      // 舊版伺服器沒有這兩個欄位：視為不限次
+      undoLimit = (j['undo_limit'] as num?)?.toInt() ?? 1 << 30,
+      undosLeft =
+          (j['undos_left'] as num?)?.toInt() ??
+          (j['undo_limit'] as num?)?.toInt() ??
+          1 << 30,
+      stamina = j['stamina'] is Map<String, dynamic>
+          ? StaminaInfo.fromJson(j['stamina'] as Map<String, dynamic>)
+          : null;
 
   int get passAction => size * size;
+}
+
+/// 伺服器回報的體力：開局扣 1 點，每 [regenSeconds] 回 1 點，上限 [max]。
+/// 帶著取得時間，畫面倒數可以在本機推算，不必一直打伺服器。
+class StaminaInfo {
+  final int points;
+  final int max;
+  final int regenSeconds;
+  final int? nextInSeconds; // 滿格時為 null
+  final DateTime fetchedAt;
+
+  StaminaInfo({
+    required this.points,
+    required this.max,
+    required this.regenSeconds,
+    required this.nextInSeconds,
+    DateTime? fetchedAt,
+  }) : fetchedAt = fetchedAt ?? DateTime.now();
+
+  factory StaminaInfo.fromJson(Map<String, dynamic> j) => StaminaInfo(
+    points: (j['points'] as num?)?.toInt() ?? 0,
+    max: (j['max'] as num?)?.toInt() ?? 24,
+    regenSeconds: (j['regen_seconds'] as num?)?.toInt() ?? 3600,
+    nextInSeconds: (j['next_in_seconds'] as num?)?.toInt(),
+  );
+
+  /// 依取得後經過的時間推算目前點數（伺服器仍是真相，這只是畫面用）。
+  int pointsAt(DateTime now) {
+    final first = nextInSeconds;
+    if (first == null) return max;
+    final elapsed = now.difference(fetchedAt).inSeconds;
+    if (elapsed < first) return points;
+    final gained = 1 + (elapsed - first) ~/ regenSeconds;
+    return (points + gained).clamp(0, max);
+  }
+
+  /// 距離下一點回復的時間；滿格為 null。
+  Duration? nextInAt(DateTime now) {
+    final first = nextInSeconds;
+    if (first == null) return null;
+    if (pointsAt(now) >= max) return null;
+    final elapsed = now.difference(fetchedAt).inSeconds;
+    if (elapsed < first) return Duration(seconds: first - elapsed);
+    final rem = regenSeconds - (elapsed - first) % regenSeconds;
+    return Duration(seconds: rem);
+  }
+
+  bool isEmptyAt(DateTime now) => pointsAt(now) <= 0;
 }
 
 class EngineInfo {
@@ -153,7 +213,13 @@ class EngineApi {
       return _waitForJob(j, onQueueProgress: onQueueProgress);
     }
     if (r.statusCode != 200) {
-      throw EngineError(j['error'] ?? 'HTTP ${r.statusCode}', r.statusCode);
+      throw EngineError(
+        j['error'] ?? 'HTTP ${r.statusCode}',
+        r.statusCode,
+        j['stamina'] is Map<String, dynamic>
+            ? StaminaInfo.fromJson(j['stamina'] as Map<String, dynamic>)
+            : null,
+      );
     }
     return j;
   }
@@ -244,6 +310,7 @@ class EngineApi {
     int boardSize = 19,
     double komi = 7.5,
     int handicap = 0,
+    String? playerId,
     QueueProgressCallback? onQueueProgress,
   }) async => GameState.fromJson(
     await _post('/new', {
@@ -252,13 +319,31 @@ class EngineApi {
       'board_size': boardSize,
       'komi': komi,
       'handicap': handicap,
+      'player_id': ?playerId,
     }, onQueueProgress: onQueueProgress),
   );
+
+  /// 目前體力（不扣點）。舊版伺服器沒有這個端點時回 null。
+  Future<StaminaInfo?> stamina(String playerId) async {
+    final r = await _client
+        .get(_url('/stamina', {'player_id': playerId}), headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (r.statusCode == 404) return null;
+    final j = _decode(r);
+    if (r.statusCode != 200) {
+      throw EngineError(j['error'] ?? 'HTTP ${r.statusCode}', r.statusCode);
+    }
+    return StaminaInfo.fromJson(j);
+  }
+
+  /// 組 GET 網址：query 一律經過編碼，避免字串拼接把參數值帶進路徑或其他參數
+  static Uri _url(String path, [Map<String, String>? query]) =>
+      Uri.parse(engineBase).replace(path: path, queryParameters: query);
 
   /// 唯讀狀態（timeout 後重新同步用）
   Future<GameState> state(String gameId) async {
     final r = await _client
-        .get(Uri.parse('$engineBase/state?game_id=$gameId'), headers: _headers)
+        .get(_url('/state', {'game_id': gameId}), headers: _headers)
         .timeout(const Duration(seconds: 5));
     final j = jsonDecode(r.body) as Map<String, dynamic>;
     if (r.statusCode != 200) {
@@ -298,7 +383,9 @@ class EngineApi {
 class EngineError implements Exception {
   final String message;
   final int? statusCode;
-  EngineError(this.message, [this.statusCode]);
+  final StaminaInfo? stamina; // 429 體力不足時伺服器附上的倒數
+  EngineError(this.message, [this.statusCode, this.stamina]);
+  bool get staminaExhausted => statusCode == 429;
   @override
   String toString() => message;
 }

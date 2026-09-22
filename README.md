@@ -120,6 +120,32 @@ curl http://127.0.0.1:8765/health
 沒有 idempotency key 的舊版 App 仍會收到原本的同步 GameState 回應，升級伺服器
 不會直接破壞已安裝的客戶端。
 
+### 體力與悔棋上限
+
+為了讓家用主機上同時進行的對局數有個上限，伺服器依玩家記體力：
+
+- 每位玩家 24 點，開一局（`POST /new`）扣 1 點，每小時回 1 點。
+- App 第一次啟動時隨機產生 `player_id`（存在 Documents），隨 `/new` 送出；
+  `GET /stamina?player_id=…` 只查不扣。沒帶 `player_id` 的舊版 App 以
+  `CF-Connecting-IP` 為鍵，同一個對外 IP 共用一份體力。
+- 體力不足時 `/new` 回 `429`，body 含 `stamina.next_in_seconds`，並帶 `Retry-After`。
+  扣點發生在推理 job 內：排隊被拒（503）或參數錯誤不扣，同一 idempotency key 重送不重扣。
+- 每局最多悔棋 3 次；第 4 次 `/undo` 回 `400 undo limit reached`。GameState 帶
+  `undo_limit` / `undos_left`，App 以此顯示「悔棋 n/3」並在用完時停用按鈕。
+- 帳本存在 `--state-dir`（或 state-file 所在目錄）的 `stamina.json`，重啟不歸零。
+
+另外有一層依對外 IP 計的開局總量（預設 72 局、每 20 分鐘回 1），擋「每局換一個
+`player_id`」的腳本；帳本筆數上限 5 萬筆，滿了淘汰最接近回滿的（被淘汰的人重新出現時是滿格，
+不會少）。
+
+環境變數：`GOZERO_STAMINA_MAX`（預設 24）、`GOZERO_STAMINA_REGEN_SECONDS`（預設 3600）、
+`GOZERO_IP_STAMINA_MAX`（72）、`GOZERO_IP_STAMINA_REGEN_SECONDS`（1200）、
+`GOZERO_STAMINA_MAX_PLAYERS`（50000）、`GOZERO_MAX_UNDOS`（3）、
+`GOZERO_MAX_CONNECTIONS`（同時 HTTP 連線數上限，預設 256，超過直接拒絕新連線）。
+
+本機沒有 JAX 或 checkpoint 時，`python3 scripts/fake_engine_server.py --port 8765 --stamina-max 3`
+會用隨機落子的假引擎跑同一套 HTTP 層，供 App 開發與 `tests/test_server_stamina_undo.py` 使用。
+
 ### Server CI/CD
 
 推送影響引擎或排隊 App 協定的 commit 到 `main` 時，

@@ -213,6 +213,8 @@ def smoke_test(
             "handicap": 0,
             "board_size": expected_board_size,
             "request_id": request_id,
+            # 部署煙霧測試有自己的體力帳戶，不會吃掉同 IP 使用者的點數
+            "player_id": "deploy-smoke-test",
         },
         request_id=request_id,
     )

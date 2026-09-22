@@ -16,9 +16,12 @@ Endpoints (JSON in/out):
     GET  /health                          -> model and queue info
     GET  /queue                           -> current inference capacity
     GET  /jobs/<job_id>                   -> queued/running/completed result
-    POST /new    {level, human_color, board_size?, komi?, handicap?} -> 202 job
+    GET  /stamina?player_id=<id>          -> this player's stamina
+    POST /new    {level, human_color, board_size?, komi?, handicap?, player_id?}
+                                          -> 202 job (costs 1 stamina; 429 if none)
     POST /move   {game_id, action, expected_moves?}     -> 202 inference job
     POST /undo   {game_id, expected_moves?}             -> 202 inference job
+                                          (at most MAX_UNDOS per game)
     POST /resign {game_id}                -> immediate game result
 """
 from __future__ import annotations
@@ -45,6 +48,10 @@ from pgx.go import Go
 
 from gozero.job_queue import InferenceJobQueue, PublicJobError, QueueFull
 from gozero.mcts import batch_of_one, load_ckpt, make_search_fn
+from gozero.stamina import (
+    IP_STAMINA_MAX, IP_STAMINA_REGEN_SECONDS, NEW_GAME_COST,
+    StaminaBank, StaminaExhausted, client_ip_key, player_key,
+)
 
 LEVELS = {"easy": 0, "normal": 32, "strong": 128}  # MCTS simulations
 DEFAULT_KOMI = 7.5  # the pgx training komi; other values are legal but the
@@ -52,6 +59,7 @@ DEFAULT_KOMI = 7.5  # the pgx training komi; other values are legal but the
                     # terminal nodes with the game's own komi)
 HANDICAPS = (0, 2, 3, 4)
 MAX_BODY = 64 * 1024  # 請求主體上限；正常請求不到 1 KB
+MAX_UNDOS = int(os.environ.get("GOZERO_MAX_UNDOS", 3))  # 每局可悔棋次數
 SAVE_INTERVAL = int(os.environ.get("GOZERO_SAVE_INTERVAL", 300))
 # 定期存檔（秒）；SIGTERM 之外的死法（kill -9、當機）最多只丟這個窗口內的進度
 
@@ -71,6 +79,7 @@ class Game:
         self.state = engine.env_fns(komi)[0](self.init_key)
         self.black_player = int(self.state.current_player)  # black moves first
         self.resigned_by: str | None = None
+        self.undos_used = 0  # 每局上限 MAX_UNDOS，存檔一併保留
         # 黑勝率軌跡：winrates[i] = 第 i 手後（i=0 為空盤）的模型評估
         self.winrates: list[float] = [engine.state_black_winrate(self.state, 0)]
         # 這一局自己的鎖：同一局的請求仍互斥（連點兩下不會壞盤面），
@@ -260,6 +269,9 @@ class Engine:
             "komi": game.komi,
             "handicap": game.handicap,
             "setup_plies": game.setup_plies,
+            "undo_limit": MAX_UNDOS,
+            "undos_used": game.undos_used,
+            "undos_left": max(0, MAX_UNDOS - game.undos_used),
         }
 
     def capture_counts(self, game: Game, board: list[int]) -> dict:
@@ -345,6 +357,7 @@ class Engine:
                     "komi": g.komi,
                     "handicap": g.handicap,
                     "touched": g.touched,
+                    "undos_used": g.undos_used,
                 }
         data = {"version": 2, "board_size": self.size, "games": games_data}
         with open(path, "w") as f:
@@ -381,6 +394,7 @@ class Engine:
                 continue  # stale/corrupt entry; drop it
             game.resigned_by = d["resigned_by"]
             game.touched = d.get("touched", time.time())
+            game.undos_used = int(d.get("undos_used", 0))
             self.games[gid] = game
         if self.games:
             print(f"restored {len(self.games)} game(s)", flush=True)
@@ -397,6 +411,11 @@ class EnginePool:
         )
         self.engines: dict[int, Engine] = {}
         self.ckpt_paths: dict[int, str] = {}
+        # 體力跨棋盤共用：不管下 9 路或 19 路，開局都是同一個人的一點
+        self.stamina = StaminaBank()
+        # 第二層依 IP 計，擋「每局換一個 player_id」的腳本
+        self.ip_stamina = StaminaBank(
+            max_points=IP_STAMINA_MAX, regen_seconds=IP_STAMINA_REGEN_SECONDS)
         for path in ckpt_paths:
             print(f"loading {path} ...", flush=True)
             engine = Engine(path, jobs=self.jobs)
@@ -437,6 +456,12 @@ class EnginePool:
                 self.engines[size].model_info() for size in sorted(self.engines)
             ],
             "queue": self.jobs.status(),
+            "stamina": {
+                "max": self.stamina.max_points,
+                "regen_seconds": self.stamina.regen_seconds,
+                "new_game_cost": NEW_GAME_COST,
+            },
+            "undo_limit": MAX_UNDOS,
         }
 
 
@@ -478,6 +503,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(view)
         if path == "/queue":
             return self._send(engines.jobs.status())
+        if path == "/stamina":
+            # 首頁顯示體力用；不扣點。沒帶 player_id 就以 IP 為鍵（同 /new）。
+            query = parse_qs(urlparse(self.path).query)
+            req = {"player_id": query["player_id"][0]} if "player_id" in query else {}
+            try:
+                key = player_key(req, self.headers, self.client_address[0])
+            except ValueError as err:
+                return self._send({"error": str(err)}, 400)
+            return self._send(engines.stamina.view(key))
         if path == "/state":
             # read-only resync endpoint: /state?game_id=xxx
             gid = parse_qs(urlparse(self.path).query).get("game_id", [""])[0]
@@ -606,15 +640,55 @@ class Handler(BaseHTTPRequestHandler):
             if handicap not in HANDICAPS:
                 return self._send({"error": "bad handicap"}, 400)
 
+            # 體力：先在 handler 端擋掉沒點數的人（回 429 附倒數，app 直接顯示），
+            # 真正扣點放在 job 裡——排隊被拒（503）或參數錯誤都不該花掉體力，
+            # 而同一 Idempotency-Key 的重送不會再跑一次 job，也就不會重複扣。
+            stamina = engines.stamina
+            ip_stamina = engines.ip_stamina
+            player = player_key(req, self.headers, self.client_address[0])
+            ip = client_ip_key(self.headers, self.client_address[0])
+            view = stamina.view(player)
+            if view["points"] < NEW_GAME_COST:
+                return self._send(
+                    {"error": "stamina exhausted", "stamina": view},
+                    429,
+                    {"Retry-After": view["next_in_seconds"] or 1},
+                )
+            ip_view = ip_stamina.view(ip)
+            if ip_view["points"] < NEW_GAME_COST:
+                # 對 app 呈現成一般的體力不足，倒數用 IP 桶的
+                shown = dict(view, points=0, next_in_seconds=ip_view["next_in_seconds"])
+                return self._send(
+                    {"error": "stamina exhausted", "stamina": shown},
+                    429,
+                    {"Retry-After": ip_view["next_in_seconds"] or 1},
+                )
+
             def new_game():
-                game_id = uuid.uuid4().hex[:12]
-                # 先把開局算完再收錄：這段期間別的執行緒看不到這局。
-                game = Game(e, level, human, komi, handicap)
-                e.apply_handicap(game)
-                to_move = "black" if len(game.history) % 2 == 0 else "white"
-                ai = e.ai_move(game) if to_move != human else None
-                e.register(game_id, game)
-                return e.snapshot(game, game_id, ai_move=ai)
+                try:
+                    remaining = stamina.spend(player)
+                except StaminaExhausted as err:
+                    raise PublicJobError("stamina exhausted", 429) from err
+                try:
+                    ip_stamina.spend(ip)
+                except StaminaExhausted as err:
+                    stamina.refund(player)
+                    raise PublicJobError("stamina exhausted", 429) from err
+                try:
+                    game_id = uuid.uuid4().hex[:12]
+                    # 先把開局算完再收錄：這段期間別的執行緒看不到這局。
+                    game = Game(e, level, human, komi, handicap)
+                    e.apply_handicap(game)
+                    to_move = "black" if len(game.history) % 2 == 0 else "white"
+                    ai = e.ai_move(game) if to_move != human else None
+                    e.register(game_id, game)
+                except Exception:
+                    stamina.refund(player)  # 開局失敗不收費
+                    ip_stamina.refund(ip)
+                    raise
+                snap = e.snapshot(game, game_id, ai_move=ai)
+                snap["stamina"] = remaining
+                return snap
 
             return self._submit("new", req, new_game)
 
@@ -669,6 +743,8 @@ class Handler(BaseHTTPRequestHandler):
                     h = game.history[:]
                     if len(h) <= base:
                         raise PublicJobError("nothing to undo", 400)
+                    if game.undos_used >= MAX_UNDOS:
+                        raise PublicJobError("undo limit reached", 400)
                     h.pop()
                     while len(h) > base and (len(h) % 2 == 0) != human_is_black:
                         h.pop()
@@ -677,6 +753,7 @@ class Handler(BaseHTTPRequestHandler):
                     # 執白退到空盤時輪到 AI（黑）先行：補回開局手，否則棋局卡死
                     if (len(game.history) % 2 == 0) != human_is_black:
                         e.ai_move(game)
+                    game.undos_used += 1
                     return e.snapshot(game, gid)
 
             return self._submit("undo", req, undo)
@@ -686,6 +763,39 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True  # don't block process exit on stuck connections
+    # 一連線一 thread，沒有上限的話幾千條慢速連線就能把 thread/記憶體吃光
+    # （slowloris）。超過就直接關掉新連線，正常使用量離這個數字很遠。
+    MAX_CONNECTIONS = int(os.environ.get("GOZERO_MAX_CONNECTIONS", 256))
+    request_queue_size = 64
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._active_connections = 0
+        self._connections_lock = threading.Lock()
+
+    def verify_request(self, request, client_address) -> bool:
+        with self._connections_lock:
+            if self._active_connections >= self.MAX_CONNECTIONS:
+                return False
+            self._active_connections += 1
+            return True
+
+    def _release_connection(self):
+        with self._connections_lock:
+            self._active_connections -= 1
+
+    def process_request(self, request, client_address):
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._release_connection()  # thread 沒起來就要把名額還回去
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._release_connection()
 
 
 def main():
@@ -723,9 +833,20 @@ def main():
         state_files[size] = path
         engine.load_games(path)
 
+    # 體力帳本跟棋局存在同一個目錄，重啟不會讓大家的體力全滿
+    stamina_file = os.path.join(
+        args.state_dir or os.path.dirname(state_files[Handler.engines.default_size]),
+        "stamina.json",
+    )
+    Handler.engines.stamina.load(stamina_file)
+    ip_stamina_file = os.path.join(os.path.dirname(stamina_file), "stamina_ip.json")
+    Handler.engines.ip_stamina.load(ip_stamina_file)
+
     def save_all_games():
         for size, engine in Handler.engines.engines.items():
             engine.save_games(state_files[size])
+        Handler.engines.stamina.save(stamina_file)
+        Handler.engines.ip_stamina.save(ip_stamina_file)
 
     def save_and_exit(signum=None, frame=None):
         save_all_games()

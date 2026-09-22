@@ -56,6 +56,8 @@ void main() {
     // 選深思後開始，應進入棋盤頁。
     await tester.tap(find.text('深思 · 128 次搜索'));
     await tester.pump();
+    await tester.ensureVisible(find.text('開始對弈'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('開始對弈'));
     await waitFor(tester, find.text('對弈 · 深思'));
     expect(find.text('虛手'), findsOneWidget);

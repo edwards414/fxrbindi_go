@@ -141,6 +141,102 @@ void main() {
     final game = await api.undo('game123', expectedMoves: 6);
 
     expect(game.moves, 4);
+    // 舊版伺服器沒有悔棋上限欄位：視為不限次
+    expect(game.undosLeft, greaterThan(99));
+    api.close();
+  });
+
+  test('new game sends player_id and parses stamina and undo budget', () async {
+    final client = MockClient((request) async {
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['player_id'], 'abcdef0123456789');
+      return http.Response(
+        jsonEncode({
+          ...gameJson(moves: 0),
+          'undo_limit': 3,
+          'undos_used': 0,
+          'undos_left': 3,
+          'stamina': {
+            'points': 23,
+            'max': 24,
+            'regen_seconds': 3600,
+            'next_in_seconds': 3600,
+          },
+        }),
+        200,
+      );
+    });
+    final api = EngineApi(client: client);
+
+    final game = await api.newGame(
+      level: 'normal',
+      humanColor: 'black',
+      playerId: 'abcdef0123456789',
+    );
+
+    expect(game.undoLimit, 3);
+    expect(game.undosLeft, 3);
+    final s = game.stamina!;
+    expect(s.points, 23);
+    expect(s.pointsAt(s.fetchedAt), 23);
+    expect(s.nextInAt(s.fetchedAt), const Duration(seconds: 3600));
+    // 本機推算：2 小時 10 分後回了 2 點，距下一點 50 分鐘
+    final later = s.fetchedAt.add(const Duration(hours: 2, minutes: 10));
+    expect(s.pointsAt(later), 24);
+    expect(s.nextInAt(later), isNull);
+    api.close();
+  });
+
+  test('stamina regen estimate keeps the carry-over', () {
+    final s = StaminaInfo(
+      points: 5,
+      max: 24,
+      regenSeconds: 3600,
+      nextInSeconds: 600,
+      fetchedAt: DateTime(2026, 1, 1),
+    );
+    // 10 分鐘後 +1、再 60 分鐘 +1；75 分鐘時共 7 點，距下一點 55 分鐘
+    final later = s.fetchedAt.add(const Duration(minutes: 75));
+    expect(s.pointsAt(later), 7);
+    expect(s.nextInAt(later), const Duration(minutes: 55));
+    expect(s.isEmptyAt(later), isFalse);
+  });
+
+  test('429 from /new surfaces stamina countdown', () async {
+    final client = MockClient(
+      (_) async => http.Response(
+        jsonEncode({
+          'error': 'stamina exhausted',
+          'stamina': {
+            'points': 0,
+            'max': 24,
+            'regen_seconds': 3600,
+            'next_in_seconds': 1234,
+          },
+        }),
+        429,
+      ),
+    );
+    final api = EngineApi(client: client);
+
+    try {
+      await api.newGame(level: 'easy', humanColor: 'black', playerId: 'p' * 16);
+      fail('expected EngineError');
+    } on EngineError catch (error) {
+      expect(error.staminaExhausted, isTrue);
+      expect(error.stamina!.points, 0);
+      expect(error.stamina!.nextInSeconds, 1234);
+    } finally {
+      api.close();
+    }
+  });
+
+  test('GET /stamina returns null on a server without the endpoint', () async {
+    final client = MockClient(
+      (_) async => http.Response(jsonEncode({'error': 'not found'}), 404),
+    );
+    final api = EngineApi(client: client);
+    expect(await api.stamina('p' * 16), isNull);
     api.close();
   });
 }

@@ -9,6 +9,7 @@ import 'game_page.dart';
 import 'game_setup_page.dart';
 import 'history_page.dart';
 import 'main.dart';
+import 'stamina.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -76,6 +77,8 @@ class _HomePageState extends State<HomePage> {
     try {
       final i = await api.health();
       if (mounted) setState(() => info = i);
+      // 健康檢查過了才問體力；失敗不影響連線狀態顯示
+      await StaminaModel.instance.refresh(api);
     } catch (_) {
       if (mounted) {
         setState(() => engineError = '連不上對弈引擎，請確認網路連線後重試');
@@ -103,10 +106,23 @@ class _HomePageState extends State<HomePage> {
       }
     }
     if (!mounted) return;
-    Navigator.push(
+    if (StaminaModel.instance.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            StaminaModel.instance.exhaustedMessage() ?? '體力用完了，請稍後再試',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const GameSetupPage()),
     );
+    // 下完回到首頁時體力已經變了，重新讀一次
+    if (mounted) StaminaModel.instance.refresh(api);
   }
 
   @override
@@ -162,6 +178,8 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  const StaminaBar(),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     style: _secondaryButtonStyle(),

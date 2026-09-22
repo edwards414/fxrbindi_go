@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'game_page.dart';
+import 'stamina.dart';
 import 'main.dart';
 
 /// 貼目說明裡的一條：朱印方章字符 + 一段文字。
@@ -84,6 +85,28 @@ class _GameSetupPageState extends State<GameSetupPage> {
       return null;
     }
     return v;
+  }
+
+  void _start() {
+    final resolvedKomi = _resolveKomi();
+    if (resolvedKomi == null) return;
+    _lastLevel = level;
+    _lastColor = humanColor;
+    _lastBoardSize = boardSize;
+    _lastKomi = resolvedKomi;
+    _lastHandicap = handicap;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GamePage(
+          level: level,
+          humanColor: humanColor,
+          boardSize: boardSize,
+          komi: resolvedKomi,
+          handicap: handicap,
+        ),
+      ),
+    );
   }
 
   @override
@@ -249,43 +272,31 @@ class _GameSetupPageState extends State<GameSetupPage> {
                       ),
                   ]),
                   const SizedBox(height: 32),
-                  FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Sumi.seal,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    onPressed: () {
-                      final resolvedKomi = _resolveKomi();
-                      if (resolvedKomi == null) return;
-                      _lastLevel = level;
-                      _lastColor = humanColor;
-                      _lastBoardSize = boardSize;
-                      _lastKomi = resolvedKomi;
-                      _lastHandicap = handicap;
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => GamePage(
-                            level: level,
-                            humanColor: humanColor,
-                            boardSize: boardSize,
-                            komi: resolvedKomi,
-                            handicap: handicap,
+                  ListenableBuilder(
+                    listenable: StaminaModel.instance,
+                    builder: (context, _) {
+                      final exhausted = StaminaModel.instance.isEmpty;
+                      return FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Sumi.seal,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        onPressed: exhausted ? null : _start,
+                        child: Text(
+                          exhausted ? '體力不足' : '開始對弈',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       );
                     },
-                    child: const Text(
-                      '開始對弈',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
                   ),
+                  const SizedBox(height: 8),
+                  const StaminaBar(),
                   const SizedBox(height: 24),
                 ],
               ),

@@ -5,7 +5,9 @@ import 'api.dart';
 import 'board_painter.dart';
 import 'main.dart';
 import 'match_history.dart';
+import 'player_id.dart';
 import 'review_page.dart';
+import 'stamina.dart';
 import 'winrate_curve.dart';
 
 class GamePage extends StatefulWidget {
@@ -109,6 +111,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
       final g = await op();
       if (!mounted) return;
       setState(() => game = g);
+      if (g.stamina != null) StaminaModel.instance.apply(g.stamina!);
       if (prevBoard != null && prevBoard.length == g.board.length) {
         _animateBoardDiff(prevBoard, g.board);
       }
@@ -143,7 +146,12 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
       }
     } on EngineError catch (e) {
       if (!mounted) return;
-      setState(() => error = e.message);
+      if (e.stamina != null) StaminaModel.instance.apply(e.stamina!);
+      setState(
+        () => error = e.staminaExhausted
+            ? (StaminaModel.instance.exhaustedMessage() ?? '體力用完了，請稍後再試')
+            : e.message,
+      );
       await _resync();
     } catch (_) {
       if (!mounted) return;
@@ -167,16 +175,18 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
     });
   }
 
-  void _newGame() => _run(
-    () => api.newGame(
+  void _newGame() => _run(() async {
+    final playerId = await PlayerId.get();
+    return api.newGame(
       level: widget.level,
       humanColor: widget.humanColor,
       boardSize: widget.boardSize,
       komi: widget.komi,
       handicap: widget.handicap,
+      playerId: playerId,
       onQueueProgress: _onQueueProgress,
-    ),
-  );
+    );
+  });
 
   /// 錯誤（如 timeout 後伺服器已落子）後向伺服器拉回真實狀態
   Future<void> _resync() async {
@@ -278,14 +288,20 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
             },
             child: const Text('回顧此局', style: TextStyle(color: Sumi.paperDim)),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Sumi.seal),
-            onPressed: () {
-              Navigator.pop(context);
-              _newGame();
-            },
-            child: const Text('再來一局'),
-          ),
+          if (StaminaModel.instance.isEmpty)
+            Tooltip(
+              message: StaminaModel.instance.exhaustedMessage() ?? '',
+              child: const FilledButton(onPressed: null, child: Text('體力不足')),
+            )
+          else
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Sumi.seal),
+              onPressed: () {
+                Navigator.pop(context);
+                _newGame();
+              },
+              child: const Text('再來一局'),
+            ),
         ],
       ),
     );
@@ -654,9 +670,10 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
         const SizedBox(width: 12),
         OutlinedButton(
           style: style,
-          // 執白時 AI 先行的開局手不算可悔的自著
+          // 執白時 AI 先行的開局手不算可悔的自著；每局最多悔 undoLimit 次
           onPressed:
               !busy &&
+                  g.undosLeft > 0 &&
                   g.moves > (g.humanColor == 'white' ? 1 : 0) &&
                   !g.gameOver
               ? () => _run(
@@ -667,7 +684,9 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
                   ),
                 )
               : null,
-          child: const Text('悔棋'),
+          child: Text(
+            g.undoLimit > 99 ? '悔棋' : '悔棋 ${g.undosLeft}/${g.undoLimit}',
+          ),
         ),
         const SizedBox(width: 12),
         OutlinedButton(
