@@ -71,8 +71,15 @@ sed 's|<string>upload</string>|<string>export</string>|' ios/ExportOptions.plist
 # flutter build ipa 最後會自己試著匯出一次，用的是 ios/ExportOptions.plist
 # （destination=upload、沒帶 API 金鑰），必定噴 "No Accounts"——但它仍回 0，
 # 而我們只要它產出的 archive。所以不看退出碼，直接檢查 archive 在不在。
-flutter build ipa --build-number="$BUILD_NUM" >> "$LOG" 2>&1 || true
 ARCHIVE=build/ios/archive/Runner.xcarchive
+# 舊 archive 一定要先刪：2026-09-23 build 63 的 flutter build 失敗，卻拿上一輪
+# （版號還是 1.0.0）的 archive 去簽章上傳，錯誤訊息完全指向別的地方。
+rm -rf "$ARCHIVE"
+# CocoaPods 產物也每次重來。從 repo 複製過來的 Pods/、.symlinks 是別台建置
+# （模擬器 debug、integration_test）留下的，Release archive 會抱怨找不到
+# dev dependency 的標頭檔。Podfile.lock 保留（有進版控，鎖版本）。
+rm -rf ios/Pods ios/.symlinks
+flutter build ipa --build-number="$BUILD_NUM" >> "$LOG" 2>&1 || true
 [ -d "$ARCHIVE" ] || fail "flutter build ipa（沒產出 archive）"
 
 rm -rf "$EXPORT_DIR"
