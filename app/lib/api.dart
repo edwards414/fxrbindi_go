@@ -97,7 +97,7 @@ class StaminaInfo {
 
   factory StaminaInfo.fromJson(Map<String, dynamic> j) => StaminaInfo(
     points: (j['points'] as num?)?.toInt() ?? 0,
-    max: (j['max'] as num?)?.toInt() ?? 24,
+    max: (j['max'] as num?)?.toInt() ?? 10,
     regenSeconds: (j['regen_seconds'] as num?)?.toInt() ?? 3600,
     nextInSeconds: (j['next_in_seconds'] as num?)?.toInt(),
   );

@@ -124,7 +124,7 @@ curl http://127.0.0.1:8765/health
 
 為了讓家用主機上同時進行的對局數有個上限，伺服器依玩家記體力：
 
-- 每位玩家 24 點，開一局（`POST /new`）扣 1 點，每小時回 1 點。
+- 每位玩家 10 點，開一局（`POST /new`）扣 1 點，每小時回 1 點。
 - App 第一次啟動時隨機產生 `player_id`（存在 Documents），隨 `/new` 送出；
   `GET /stamina?player_id=…` 只查不扣。沒帶 `player_id` 的舊版 App 以
   `CF-Connecting-IP` 為鍵，同一個對外 IP 共用一份體力。
@@ -133,13 +133,15 @@ curl http://127.0.0.1:8765/health
 - 每局最多悔棋 3 次；第 4 次 `/undo` 回 `400 undo limit reached`。GameState 帶
   `undo_limit` / `undos_left`，App 以此顯示「悔棋 n/3」並在用完時停用按鈕。
 - 帳本存在 `--state-dir`（或 state-file 所在目錄）的 `stamina.json`，重啟不歸零。
+- 中途離開的對局會保留：伺服器 24 小時內沒動作才清掉（`GOZERO_GAME_TTL`），App 記住
+  game_id，首頁顯示「繼續對局」，用 `/state` 接回盤面，不開新局也不扣體力。
 
-另外有一層依對外 IP 計的開局總量（預設 72 局、每 20 分鐘回 1），擋「每局換一個
+另外有一層依對外 IP 計的開局總量（預設 30 局、每 20 分鐘回 1），擋「每局換一個
 `player_id`」的腳本；帳本筆數上限 5 萬筆，滿了淘汰最接近回滿的（被淘汰的人重新出現時是滿格，
 不會少）。
 
-環境變數：`GOZERO_STAMINA_MAX`（預設 24）、`GOZERO_STAMINA_REGEN_SECONDS`（預設 3600）、
-`GOZERO_IP_STAMINA_MAX`（72）、`GOZERO_IP_STAMINA_REGEN_SECONDS`（1200）、
+環境變數：`GOZERO_STAMINA_MAX`（預設 10）、`GOZERO_STAMINA_REGEN_SECONDS`（預設 3600）、
+`GOZERO_IP_STAMINA_MAX`（30）、`GOZERO_IP_STAMINA_REGEN_SECONDS`（1200）、
 `GOZERO_STAMINA_MAX_PLAYERS`（50000）、`GOZERO_MAX_UNDOS`（3）、
 `GOZERO_MAX_CONNECTIONS`（同時 HTTP 連線數上限，預設 256，超過直接拒絕新連線）。
 

@@ -17,14 +17,14 @@ import threading
 import time
 from typing import Callable
 
-STAMINA_MAX = int(os.environ.get("GOZERO_STAMINA_MAX", 24))
+STAMINA_MAX = int(os.environ.get("GOZERO_STAMINA_MAX", 10))
 STAMINA_REGEN_SECONDS = int(os.environ.get("GOZERO_STAMINA_REGEN_SECONDS", 3600))
 NEW_GAME_COST = 1
 # 第二層：同一個對外 IP 不管換多少個 player_id，開局總量也有上限。
 # 沒有這層的話，一支腳本每局換一個隨機 id 就能無限開局，體力形同虛設。
-# 預設 72 局 / 每 20 分鐘回 1（= 一天 72 局），比單人 24 局寬鬆，
+# 預設 30 局 / 每 20 分鐘回 1（= 一天 72 局），比單人 10 局寬鬆，
 # 同一 NAT 底下三個人同時玩滿也不會被誤擋。
-IP_STAMINA_MAX = int(os.environ.get("GOZERO_IP_STAMINA_MAX", 72))
+IP_STAMINA_MAX = int(os.environ.get("GOZERO_IP_STAMINA_MAX", 30))
 IP_STAMINA_REGEN_SECONDS = int(os.environ.get("GOZERO_IP_STAMINA_REGEN_SECONDS", 1200))
 # 帳本筆數上限：攻擊者可以用隨機 player_id 灌爆記憶體，滿了就淘汰最接近回滿的
 MAX_PLAYERS = int(os.environ.get("GOZERO_STAMINA_MAX_PLAYERS", 50_000))

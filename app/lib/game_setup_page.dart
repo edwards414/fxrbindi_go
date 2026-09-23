@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'current_game.dart';
 import 'game_page.dart';
 import 'stamina.dart';
 import 'main.dart';
@@ -87,9 +88,39 @@ class _GameSetupPageState extends State<GameSetupPage> {
     return v;
   }
 
-  void _start() {
+  Future<void> _start() async {
     final resolvedKomi = _resolveKomi();
     if (resolvedKomi == null) return;
+    // 還有一局沒下完：開新局會把它丟掉，而且照扣體力，先問一聲
+    final unfinished = await CurrentGameStore.load();
+    if (unfinished != null) {
+      if (!mounted) return;
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: Sumi.panel,
+          title: const Text('放棄未完成的對局？'),
+          content: const Text(
+            '你有一局還沒下完（首頁可以繼續）。開新局會放棄那一局，並扣 1 點體力。',
+            style: TextStyle(color: Sumi.paperDim),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消', style: TextStyle(color: Sumi.paperDim)),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Sumi.danger),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('開新局'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      await CurrentGameStore.clear();
+    }
+    if (!mounted) return;
     _lastLevel = level;
     _lastColor = humanColor;
     _lastBoardSize = boardSize;
@@ -295,7 +326,7 @@ class _GameSetupPageState extends State<GameSetupPage> {
                       );
                     },
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 14),
                   const StaminaBar(),
                   const SizedBox(height: 24),
                 ],

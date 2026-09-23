@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'api.dart';
+import 'current_game.dart';
 import 'game_page.dart';
 import 'game_setup_page.dart';
 import 'history_page.dart';
@@ -23,11 +24,32 @@ class _HomePageState extends State<HomePage> {
   EngineInfo? info;
   String? engineError;
   bool connecting = false;
+  CurrentGame? unfinished; // 上次中途離開的對局
+
+  static const _levelNames = {'easy': '直覺', 'normal': '均衡', 'strong': '深思'};
+
+  Future<void> _loadUnfinished() async {
+    final saved = await CurrentGameStore.load();
+    if (mounted) setState(() => unfinished = saved);
+  }
+
+  Future<void> _resumeGame() async {
+    final saved = unfinished;
+    if (saved == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => GamePage.resume(saved)),
+    );
+    if (!mounted) return;
+    _loadUnfinished();
+    StaminaModel.instance.refresh(api);
+  }
 
   @override
   void initState() {
     super.initState();
     _ping();
+    _loadUnfinished();
     // 展示/驗證用鉤子：從 Mac 寫入本 app 容器 Documents/autodemo.txt
     // （內容 game / setup / history），啟動即自動導頁；讀後即刪。
     //
@@ -121,8 +143,10 @@ class _HomePageState extends State<HomePage> {
       context,
       MaterialPageRoute(builder: (_) => const GameSetupPage()),
     );
-    // 下完回到首頁時體力已經變了，重新讀一次
-    if (mounted) StaminaModel.instance.refresh(api);
+    // 下完回到首頁時體力已經變了，重新讀一次；也可能留下一局沒下完
+    if (!mounted) return;
+    StaminaModel.instance.refresh(api);
+    _loadUnfinished();
   }
 
   @override
@@ -161,9 +185,43 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                   const SizedBox(height: 48),
+                  if (unfinished != null) ...[
+                    FilledButton(
+                      key: const ValueKey('resume-game'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Sumi.seal,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: _resumeGame,
+                      child: Column(
+                        children: [
+                          const Text(
+                            '繼續對局',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            '${unfinished!.boardSize} 路 · '
+                            '${_levelNames[unfinished!.level] ?? unfinished!.level} · '
+                            '第 ${unfinished!.moves} 手',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   FilledButton(
                     style: FilledButton.styleFrom(
-                      backgroundColor: Sumi.seal,
+                      backgroundColor: unfinished == null
+                          ? Sumi.seal
+                          : Sumi.panel,
+                      foregroundColor: Sumi.paper,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -178,9 +236,9 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 14),
                   const StaminaBar(),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   OutlinedButton.icon(
                     style: _secondaryButtonStyle(),
                     onPressed: () => Navigator.push(

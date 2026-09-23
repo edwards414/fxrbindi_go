@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'board_painter.dart';
+import 'current_game.dart';
 import 'main.dart';
 import 'match_history.dart';
 import 'player_id.dart';
@@ -17,6 +18,8 @@ class GamePage extends StatefulWidget {
   final double komi;
   final int handicap;
   final bool autoDemo; // 展示模式：自動下幾手（僅 autodemo 鉤子使用）
+  /// 接回進行中的對局（首頁「繼續對局」）：用 /state 拉盤面，不開新局、不扣體力。
+  final String? resumeGameId;
   const GamePage({
     super.key,
     required this.level,
@@ -25,7 +28,18 @@ class GamePage extends StatefulWidget {
     this.komi = 7.5,
     this.handicap = 0,
     this.autoDemo = false,
+    this.resumeGameId,
   });
+
+  /// 從記住的對局重建頁面
+  factory GamePage.resume(CurrentGame saved) => GamePage(
+    level: saved.level,
+    humanColor: saved.humanColor,
+    boardSize: saved.boardSize,
+    komi: saved.komi,
+    handicap: saved.handicap,
+    resumeGameId: saved.gameId,
+  );
 
   @override
   State<GamePage> createState() => GamePageState();
@@ -59,7 +73,45 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _newGame();
+    final resume = widget.resumeGameId;
+    if (resume != null) {
+      _resume(resume);
+    } else {
+      _newGame();
+    }
+  }
+
+  /// 接回對局。伺服器已清掉（超過保留時間）就提示並清除記錄，右上角可開新局。
+  Future<void> _resume(String gameId) async {
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final g = await api.state(gameId);
+      if (!mounted) return;
+      setState(() => game = g);
+      await _remember(g);
+    } on EngineError catch (e) {
+      if (!mounted) return;
+      await CurrentGameStore.clear();
+      setState(
+        () => error = e.statusCode == 404
+            ? '這局在伺服器已過期（超過一天沒動作），請按右上角開新局'
+            : e.message,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => error = '無法連線引擎伺服器，請確認網路連線後重試');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  /// 每次拿到新盤面就記下來；結束就忘掉。
+  Future<void> _remember(GameState g) {
+    if (g.gameOver) return CurrentGameStore.clear();
+    return CurrentGameStore.save(CurrentGame.fromGame(g, level: widget.level));
   }
 
   @override
@@ -112,6 +164,7 @@ class GamePageState extends State<GamePage> with TickerProviderStateMixin {
       if (!mounted) return;
       setState(() => game = g);
       if (g.stamina != null) StaminaModel.instance.apply(g.stamina!);
+      await _remember(g);
       if (prevBoard != null && prevBoard.length == g.board.length) {
         _animateBoardDiff(prevBoard, g.board);
       }

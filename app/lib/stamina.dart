@@ -72,7 +72,8 @@ class StaminaModel extends ChangeNotifier {
   }
 }
 
-/// 「體力 n/24 · 約 x 分鐘後回復 1 點」一行小字。
+/// 體力條：一格一點（滿格朱印紅、空格暗），下方一行「體力 n／10 · 約 x 分鐘後回復 1 點」。
+/// 點數很多（>24）時退回一條連續的進度條，格子會太細。
 class StaminaBar extends StatelessWidget {
   final TextAlign align;
   const StaminaBar({super.key, this.align = TextAlign.center});
@@ -88,17 +89,75 @@ class StaminaBar extends StatelessWidget {
       final points = i.pointsAt(now);
       final hint = m.regenHint();
       final empty = points <= 0;
+      final label = '體力 $points／${i.max}${hint == null ? '' : ' · $hint'}';
       return Semantics(
         label: '體力 $points／${i.max}${hint == null ? '' : '，$hint'}',
-        child: Text(
-          '體力 $points／${i.max}${hint == null ? '' : ' · $hint'}',
-          textAlign: align,
-          style: TextStyle(
-            color: empty ? Sumi.danger : Sumi.paperDim,
-            fontSize: 12,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _Segments(points: points, max: i.max, empty: empty),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              textAlign: align,
+              style: TextStyle(
+                color: empty ? Sumi.danger : Sumi.paperDim,
+                fontSize: 12,
+              ),
+            ),
+          ],
         ),
       );
     },
   );
+}
+
+class _Segments extends StatelessWidget {
+  final int points;
+  final int max;
+  final bool empty;
+  const _Segments({
+    required this.points,
+    required this.max,
+    required this.empty,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const height = 8.0;
+    final fill = empty ? Sumi.danger : Sumi.seal;
+    if (max > 24 || max <= 0) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(height / 2),
+        child: LinearProgressIndicator(
+          value: max <= 0 ? 0 : points / max,
+          minHeight: height,
+          color: fill,
+          backgroundColor: Sumi.panel,
+        ),
+      );
+    }
+    return Row(
+      children: [
+        for (var k = 0; k < max; k++) ...[
+          if (k > 0) const SizedBox(width: 3),
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              height: height,
+              decoration: BoxDecoration(
+                color: k < points ? fill : Sumi.panel,
+                borderRadius: BorderRadius.circular(height / 2),
+                border: Border.all(
+                  color: k < points ? fill : Sumi.line,
+                  width: 1,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 }
